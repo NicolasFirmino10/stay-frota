@@ -231,6 +231,7 @@ async function fbSave(colName, obj) {
     const id = String(obj.id || obj._fbId || Date.now());
     const data = { ...obj };
     delete data._fbId;
+    Object.keys(data).forEach(k => { if(data[k] === undefined) delete data[k]; });
     await setDoc(doc(db, colName, id), data);
     fbStatus('Salvo ✓', 'ok');
   } catch(e) {
@@ -479,9 +480,9 @@ function showLock(cb){
 function tryLock(){
   const p=document.getElementById('lock-pass').value;
   if(p==='anselmo123'){
-    state.anselmoUnlocked=true;
+    const cb=window._lockCb;
     closeLock();
-    if(window._lockCb)window._lockCb();
+    if(cb)cb();
   } else {
     document.getElementById('lock-err').style.display='block';
   }
@@ -847,7 +848,7 @@ function renderAprovacoes(){
   const rows=state.aprovacoes.map(a=>{
     const acima=+a.valor>50;
     const btnAprovar=a.status==='Aguardando Aprovação'?
-      `<button class="btn btn-sm btn-success" onclick="${acima&&!state.anselmoUnlocked?`requestApprove(${a.id})`:`doApprove(${a.id})`}">✅ Aprovar</button>
+      `<button class="btn btn-sm btn-success" onclick="tryApprove(${a.id})">✅ Aprovar</button>
        <button class="btn btn-sm btn-danger" onclick="doReprove(${a.id})">❌ Reprovar</button>`:'';
     return `<tr>
       <td><strong>${a.os}</strong></td>
@@ -863,8 +864,6 @@ function renderAprovacoes(){
   return `
     <div class="topbar"><div><div class="page-title">✅ Aprovações</div><div class="page-sub">Até R$ 50 → Júlio · Acima de R$ 50 → Anselmo (senha requerida)</div></div>
       <div style="display:flex;gap:8px">
-        ${state.anselmoUnlocked?`<span class="badge badge-green">🔓 Anselmo autenticado</span><button class="btn btn-sm btn-outline" onclick="lockAnselmo()">Bloquear</button>`:
-        `<button class="btn btn-sm btn-outline" onclick="unlockAnselmo()">🔐 Entrar como Anselmo</button>`}
         <button class="btn btn-primary" onclick="novaAprovacao()">+ Lançar</button>
       </div></div>
     <div class="content">
@@ -877,9 +876,12 @@ function renderAprovacoes(){
       </div>
     </div>`;
 }
-function unlockAnselmo(){showLock(()=>{render();})}
-function lockAnselmo(){state.anselmoUnlocked=false;render();}
-function requestApprove(id){showLock(()=>{doApprove(id);});}
+
+function tryApprove(id){
+  const a=state.aprovacoes.find(x=>x.id===id);if(!a)return;
+  if(+a.valor>50){showLock(()=>{doApprove(id);});return;}
+  doApprove(id);
+}
 async function doApprove(id){
   const a=state.aprovacoes.find(x=>x.id===id);if(!a)return;
   const updated={...a, status:'Aprovada', data:today(), autorizado:+a.valor>50?'Anselmo':'Júlio'};
