@@ -845,8 +845,61 @@ async function delCotacao(id){if(!confirm('Remover cotação?'))return;await win
 
 // ─── APROVAÇÕES ──────────────────────────────────────────────────────────────
 function renderAprovacoes(){
-  const rows=state.aprovacoes.map(a=>{
-    const acima=+a.valor>50;
+  return `
+    <div class="topbar"><div><div class="page-title">✅ Aprovações</div><div class="page-sub">Até R$ 50 → Júlio · Acima de R$ 50 → Anselmo (senha requerida)</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="novaAprovacao()">+ Lançar</button>
+      </div></div>
+    <div class="content">
+      <div class="alert alert-amber">🔒 Aprovações acima de R$ 50,00 exigem autenticação de Anselmo.</div>
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div class="form-group" style="margin:0;flex:1;min-width:140px">
+            <label>Data início</label>
+            <input type="date" id="ap-f-ini" onchange="renderAprovacoesFiltro()"/>
+          </div>
+          <div class="form-group" style="margin:0;flex:1;min-width:140px">
+            <label>Data fim</label>
+            <input type="date" id="ap-f-fim" onchange="renderAprovacoesFiltro()"/>
+          </div>
+          <div class="form-group" style="margin:0;flex:1;min-width:160px">
+            <label>Status</label>
+            <select id="ap-f-status" onchange="renderAprovacoesFiltro()">
+              <option value="">Todos</option>
+              <option value="Aguardando Aprovação">Pendentes</option>
+              <option value="Aprovada">Aprovadas</option>
+              <option value="Reprovada">Reprovadas</option>
+            </select>
+          </div>
+          <button class="btn btn-outline" style="margin-bottom:1px" onclick="limparFiltroAprov()">✕ Limpar</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table><thead><tr><th>OS #</th><th>Valor</th><th>Aprovador</th><th>Status</th><th>Data Aprovação</th><th>Autorizado por</th><th>Obs.</th><th>Ações</th></tr></thead>
+          <tbody id="ap-tbody"></tbody></table>
+        </div>
+      </div>
+    </div>`;
+}
+function renderAprovacoesFiltro(){
+  const ini=document.getElementById('ap-f-ini')?.value||'';
+  const fim=document.getElementById('ap-f-fim')?.value||'';
+  const st=document.getElementById('ap-f-status')?.value||'';
+  let lista=state.aprovacoes;
+  if(st) lista=lista.filter(a=>a.status===st);
+  if(ini||fim){
+    lista=lista.filter(a=>{
+      // pendentes: usa data da OS; aprovadas/reprovadas: usa data da aprovação
+      const osData=(state.os.find(o=>o.num===a.os)||{}).data||'';
+      const d=a.data||osData;
+      if(!d) return true;
+      if(ini&&d<ini) return false;
+      if(fim&&d>fim) return false;
+      return true;
+    });
+  }
+  const rows=lista.map(a=>{
     const btnAprovar=a.status==='Aguardando Aprovação'?
       `<button class="btn btn-sm btn-success" onclick="tryApprove(${a.id})">✅ Aprovar</button>
        <button class="btn btn-sm btn-danger" onclick="doReprove(${a.id})">❌ Reprovar</button>`:'';
@@ -861,20 +914,14 @@ function renderAprovacoes(){
       <td><div class="action-btns">${btnAprovar}</div></td>
     </tr>`;
   }).join('');
-  return `
-    <div class="topbar"><div><div class="page-title">✅ Aprovações</div><div class="page-sub">Até R$ 50 → Júlio · Acima de R$ 50 → Anselmo (senha requerida)</div></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-primary" onclick="novaAprovacao()">+ Lançar</button>
-      </div></div>
-    <div class="content">
-      <div class="alert alert-amber">🔒 Aprovações acima de R$ 50,00 exigem autenticação de Anselmo.</div>
-      <div class="card">
-        <div class="table-wrap">
-          <table><thead><tr><th>OS #</th><th>Valor</th><th>Aprovador</th><th>Status</th><th>Data Aprovação</th><th>Autorizado por</th><th>Obs.</th><th>Ações</th></tr></thead>
-          <tbody>${rows}</tbody></table>
-        </div>
-      </div>
-    </div>`;
+  const tbody=document.getElementById('ap-tbody');
+  if(tbody) tbody.innerHTML=rows||'<tr><td colspan="8" style="text-align:center;padding:24px;color:#64748B">Nenhuma aprovação encontrada</td></tr>';
+}
+function limparFiltroAprov(){
+  const ini=document.getElementById('ap-f-ini');if(ini)ini.value='';
+  const fim=document.getElementById('ap-f-fim');if(fim)fim.value='';
+  const st=document.getElementById('ap-f-status');if(st)st.value='';
+  renderAprovacoesFiltro();
 }
 
 function tryApprove(id){
@@ -1428,6 +1475,7 @@ function render(){
   };
   const fn=pages[state.page]||renderHome;
   document.getElementById('main-content').innerHTML=fn();
+  if(state.page==='aprovacoes') renderAprovacoesFiltro();
   document.querySelectorAll('.nav-item').forEach(el=>{
     el.classList.toggle('active',el.dataset.page===state.page);
   });
