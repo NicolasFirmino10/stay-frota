@@ -103,6 +103,35 @@ function renderHomeFinanceiro(){
 }
 function renderHome(){
   const os=state.os;
+  const manuts=state.manutencoes;
+  // Resumo por Status
+  const statusCounts={};
+  os.forEach(o=>{statusCounts[o.status]=(statusCounts[o.status]||0)+1});
+  const totalOS=os.length;
+  const statusList=[
+    {s:'Aberta',c:'badge-gray'},{s:'Diagnóstico/Oficina',c:'badge-red'},{s:'Cotação',c:'badge-purple'},
+    {s:'Aguardando Aprovação',c:'badge-amber'},{s:'Aprovada',c:'badge-blue'},{s:'Execução',c:'badge-blue'},
+    {s:'Concluída',c:'badge-green'},{s:'Cancelada',c:'badge-gray'}
+  ];
+  const statusRows=statusList.map(({s,c})=>{
+    const q=statusCounts[s]||0;
+    const p=totalOS?Math.round((q/totalOS)*100):0;
+    return `<tr><td><span class="badge ${c}">${s}</span></td><td><strong>${q}</strong></td><td>${p}%</td></tr>`;
+  }).join('');
+  // Top 5
+  const gastoByPlaca={};
+  os.forEach(o=>{
+    const g=manuts.filter(x=>x.os===o.num).reduce((a,x)=>a+(+x.vlrPecas||0)+(+x.vlrMO||0),0);
+    gastoByPlaca[o.placa]=(gastoByPlaca[o.placa]||0)+g;
+  });
+  const top5=Object.entries(gastoByPlaca).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const maxGasto=top5[0]?top5[0][1]:1;
+  const rankClasses=['r1','r2','r3','',''];
+  const top5Html=top5.length?top5.map(([placa,gasto],i)=>{
+    const v=getVeiculo(placa);
+    const pct=Math.round((gasto/maxGasto)*100);
+    return `<div class="top5-item"><div class="top5-rank ${rankClasses[i]}">${i+1}</div><div style="flex:1"><div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${placa}</strong> <span style="font-size:12px;color:var(--gray)">${v.modelo||''}</span></div><strong style="color:var(--green)">${fmt(gasto)}</strong></div><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div></div>`;
+  }).join(''):`<div class="empty-state"><div class="empty-icon">🏎</div><p>Nenhum dado disponível</p></div>`;
   const statusManut=['Diagnóstico/Oficina','Cotação','Aguardando Aprovação','Aprovada','Execução'];
   const veicsManut=new Set(os.filter(o=>statusManut.includes(o.status)).map(o=>o.placa)).size;
   const diag=new Set(os.filter(o=>o.status==='Diagnóstico/Oficina').map(o=>o.placa)).size;
@@ -167,6 +196,16 @@ function renderHome(){
           <div class="kpi"><div class="kpi-label">📊 Média / Veículo</div><div id="hf-avg" class="kpi-val" style="color:var(--blue);font-size:20px">${fmt(avg.toFixed(2))}</div></div>
         </div>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">▸ Resumo por Status</div>
+          <table style="width:100%"><thead><tr><th>Status</th><th>Qtde</th><th>%</th></tr></thead><tbody>${statusRows}</tbody></table>
+        </div>
+        <div class="card">
+          <div class="card-title" style="margin-bottom:16px">🏆 Top 5 — Veículos que mais gastaram</div>
+          ${top5Html}
+        </div>
+      </div>
       <div class="card">
         <div class="card-title" style="margin-bottom:14px">▸ Navegação Rápida</div>
         <div class="home-nav-grid">
@@ -179,7 +218,6 @@ function renderHome(){
             {p:'oficinas',i:'🏭',l:'Oficinas'},
             {p:'veiculos',i:'🚙',l:'Veículos'},
             {p:'fornecedores',i:'🏪',l:'Fornecedores'},
-            {p:'dashboard',i:'📊',l:'Dashboard'},
           ].map(n=>`<div class="home-nav-item" onclick="go('${n.p}')"><div class="nav-icon">${n.i}</div><div class="nav-label">${n.l}</div></div>`).join('')}
         </div>
       </div>
