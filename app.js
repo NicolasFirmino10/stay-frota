@@ -225,6 +225,93 @@ function renderHome(){
 }
 
 // ─── ORDENS DE SERVIÇO ───────────────────────────────────────────────────────
+window._osPecasTmp=[];
+function renderOSPecasRows(){
+  return window._osPecasTmp.map((p,i)=>`
+    <div class="form-row" style="align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px">
+      ${p.foto?`<img src="${p.foto}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex:none"/>`:'<div style="width:44px;height:44px;border-radius:6px;background:var(--gray-light);flex:none;display:flex;align-items:center;justify-content:center;font-size:18px">🔩</div>'}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${p.qtde}x ${p.desc}</div>
+        <div style="font-size:12px;color:var(--gray)">${[p.marca&&('Marca: '+p.marca),p.ref&&('Ref.: '+p.ref)].filter(Boolean).join(' · ')||'—'}</div>
+        ${p.obs?`<div style="font-size:12px;color:var(--gray)">Obs.: ${p.obs}</div>`:''}
+      </div>
+      <button type="button" class="btn btn-sm btn-danger" onclick="removeOSPeca(${i})">🗑</button>
+    </div>`).join('') || '<div class="empty-state" style="padding:12px;font-size:12px">Nenhuma peça adicionada</div>';
+}
+function refreshOSPecasList(){
+  const el=document.getElementById('os-pecas-list');
+  if(el) el.innerHTML=renderOSPecasRows();
+}
+function addOSPeca(){
+  const qtde=+document.getElementById('osp-qtde').value||1;
+  const desc=document.getElementById('osp-desc').value.trim();
+  const marca=document.getElementById('osp-marca').value.trim();
+  const ref=document.getElementById('osp-ref').value.trim();
+  const obs=document.getElementById('osp-obs').value.trim();
+  const fileInput=document.getElementById('osp-foto');
+  const file=fileInput.files[0];
+  if(!desc){alert('Informe a descrição da peça.');return}
+  const push=(foto)=>{
+    const id=Date.now()+'_'+Math.random().toString(36).slice(2,7);
+    window._osPecasTmp.push({id,qtde,desc,marca,ref,foto:foto||'',obs});
+    ['osp-qtde','osp-desc','osp-marca','osp-ref','osp-obs'].forEach(id=>document.getElementById(id).value='');
+    fileInput.value='';
+    refreshOSPecasList();
+  };
+  if(file){
+    const reader=new FileReader();
+    reader.onload=()=>push(reader.result);
+    reader.readAsDataURL(file);
+  } else push('');
+}
+function removeOSPeca(i){
+  window._osPecasTmp.splice(i,1);
+  refreshOSPecasList();
+}
+function osPecasSectionHTML(hidden){
+  return `
+    <div id="os-pecas-wrap" style="display:${hidden?'none':'block'}">
+      <hr style="border:none;border-top:1px solid var(--border);margin:4px 0 12px">
+      <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Peças</div>
+      <div class="form-row">
+        <div class="form-group" style="max-width:100px"><label>Qtde.</label><input type="number" id="osp-qtde" min="1" value="1"/></div>
+        <div class="form-group"><label>Descrição</label><input id="osp-desc"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Marca</label><input id="osp-marca"/></div>
+        <div class="form-group"><label>Referência</label><input id="osp-ref"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Foto da Peça</label><input type="file" accept="image/*" id="osp-foto"/></div>
+        <div class="form-group"><label>Observação</label><input id="osp-obs"/></div>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;margin:0 0 12px">
+        <button type="button" class="btn btn-outline btn-sm" onclick="addOSPeca()">+ Adicionar Peça</button>
+      </div>
+      <div id="os-pecas-list">${renderOSPecasRows()}</div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
+    </div>`;
+}
+function osOficinaMoHTML(o){
+  const suf=o?'-edit':'';
+  const ofList=state.oficinas.map(x=>`<option>${x.fantasia}</option>`).join('');
+  return `
+    <hr style="border:none;border-top:1px solid var(--border);margin:4px 0 12px">
+    <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Oficina / Mão de Obra</div>
+    <div class="form-row">
+      <div class="form-group"><label>Oficina</label><input id="os-oficina${suf}" list="os-of-list${suf}" placeholder="Nome da oficina" value="${o?(o.oficina||''):''}"/><datalist id="os-of-list${suf}">${ofList}</datalist></div>
+      <div class="form-group"><label>Mão de Obra (R$)</label><input type="number" id="os-mo${suf}" step="0.01" value="${o&&o.mo!=null?o.mo:''}"/></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0 4px;cursor:pointer">
+      <input type="checkbox" id="os-dispensa${suf}" ${o&&o.dispensaPeca?'checked':''} onchange="toggleOSDispensaPeca(${o?'true':'false'})"/>
+      Dispensar necessidade de peça (não passa pela seção de Cotações)
+    </label>`;
+}
+function toggleOSDispensaPeca(isEdit){
+  const cb=document.getElementById(isEdit?'os-dispensa-edit':'os-dispensa');
+  const wrap=document.getElementById('os-pecas-wrap');
+  if(wrap) wrap.style.display=cb.checked?'none':'block';
+}
 function renderOS(){
   const rows=state.os.map(o=>`
     <tr>
@@ -254,6 +341,7 @@ function renderOS(){
     </div>`;
 }
 function novaOS(){
+  window._osPecasTmp=[];
   const veics=state.veiculos.map(v=>`<option value="${v.placa}">${v.placa} – ${v.modelo}</option>`).join('');
   openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
     <div class="modal">
@@ -270,7 +358,10 @@ function novaOS(){
         <div class="form-group"><label>KM Atual *</label><input type="number" id="os-km"/></div>
       </div>
       <div class="form-group"><label>Defeito Relatado *</label><textarea id="os-problema" rows="3" oninput="this.value=this.value.toUpperCase()"></textarea></div>
+      <div class="form-group"><label>Solução</label><textarea id="os-solucao" rows="3"></textarea></div>
       <div class="form-group"><label>Status</label><select id="os-status"><option>Aberta</option><option>Diagnóstico/Oficina</option><option>Cotação</option><option>Aguardando Aprovação</option><option>Execução</option><option>Concluída</option><option>Cancelada</option></select></div>
+      ${osOficinaMoHTML()}
+      ${osPecasSectionHTML(false)}
       <div class="modal-actions">
         <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveOS()">Salvar OS</button>
@@ -300,8 +391,13 @@ async function saveOS(){
     motorista:v.motorista||document.getElementById('os-motorista').value,
     km:+document.getElementById('os-km').value||0,
     problema:document.getElementById('os-problema').value.toUpperCase(),
+    solucao:document.getElementById('os-solucao').value,
     status:document.getElementById('os-status').value,
-    prioridade:'Normal'
+    prioridade:'Normal',
+    oficina:document.getElementById('os-oficina').value,
+    mo:+document.getElementById('os-mo').value||0,
+    dispensaPeca:document.getElementById('os-dispensa').checked,
+    pecas:[...window._osPecasTmp]
   };
   if(!obj.placa||!obj.problema){alert('Preencha Placa e Defeito.');return}
 
@@ -311,6 +407,7 @@ async function saveOS(){
 function editOS(id){
   const o=state.os.find(x=>x.id===id);
   if(!o)return;
+  window._osPecasTmp=(o.pecas||[]).map(p=>({...p, id:p.id||(Date.now()+'_'+Math.random().toString(36).slice(2,7))}));
   const veics=state.veiculos.map(v=>`<option value="${v.placa}"${v.placa===o.placa?' selected':''}>${v.placa} – ${v.modelo}</option>`).join('');
   openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
     <div class="modal">
@@ -326,7 +423,10 @@ function editOS(id){
       </div>
       <div class="form-group"><label>KM</label><input type="number" id="os-km-edit" value="${o.km}"/></div>
       <div class="form-group"><label>Defeito</label><textarea id="os-problema-edit" rows="3" oninput="this.value=this.value.toUpperCase()">${o.problema}</textarea></div>
+      <div class="form-group"><label>Solução</label><textarea id="os-solucao-edit" rows="3">${o.solucao||''}</textarea></div>
       <div class="form-group"><label>Status</label><select id="os-status-edit">${['Aberta','Diagnóstico/Oficina','Cotação','Aguardando Aprovação','Execução','Concluída','Cancelada'].map(s=>`<option${s===o.status?' selected':''}>${s}</option>`).join('')}</select></div>
+      ${osOficinaMoHTML(o)}
+      ${osPecasSectionHTML(!!o.dispensaPeca)}
       <div class="modal-actions">
         <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="updateOS()">Atualizar</button>
@@ -345,8 +445,13 @@ async function updateOS(){
     data:document.getElementById('os-data-edit').value,
     km:+document.getElementById('os-km-edit').value||0,
     problema:document.getElementById('os-problema-edit').value.toUpperCase(),
+    solucao:document.getElementById('os-solucao-edit').value,
     status:document.getElementById('os-status-edit').value,
-    prioridade:o.prioridade||'Normal'
+    prioridade:o.prioridade||'Normal',
+    oficina:document.getElementById('os-oficina-edit').value,
+    mo:+document.getElementById('os-mo-edit').value||0,
+    dispensaPeca:document.getElementById('os-dispensa-edit').checked,
+    pecas:[...window._osPecasTmp]
   };
   await window._fb.save(window._fb.cols.os, updated);
   closeModal();
@@ -445,160 +550,243 @@ async function delVeiculo(id){if(!confirm('Remover veículo?'))return;await wind
 
 // ─── COTAÇÕES ────────────────────────────────────────────────────────────────
 function calcTotalCotacao(c){
-  const vlrPeca=(+c.vlrPeca||0);
-  const descPeca=vlrPeca*(+c.descPeca||0)/100;
-  const vlrMO=(+c.vlrMO||0);
-  return {subtotal:vlrPeca+vlrMO, descVal:descPeca, total:vlrPeca-descPeca+vlrMO};
+  const subtotal=Object.values(c.precos||{}).reduce((a,v)=>a+(+v||0),0);
+  const descVal=subtotal*(+c.desconto||0)/100;
+  return {subtotal, descVal, total:subtotal-descVal};
 }
+window._cotOpenOS=new Set();
 function toggleCotacaoOS(osNum){
   const el=document.getElementById('cot-body-'+osNum);
   if(!el)return;
   const isOpen=el.style.display!=='none';
   el.style.display=isOpen?'none':'block';
+  if(isOpen) window._cotOpenOS.delete(osNum); else window._cotOpenOS.add(osNum);
   const icon=document.getElementById('cot-icon-'+osNum);
   if(icon)icon.textContent=isOpen?'▶':'▼';
 }
+function updateCotacaoPreco(cotId,pecaId,value){
+  const c=state.cotacoes.find(x=>x.id===cotId);
+  if(!c)return;
+  const precos={...(c.precos||{}),[pecaId]:+value||0};
+  window._fb.save(window._fb.cols.cotacoes, {...c, precos});
+}
+function updateCotacaoDesconto(cotId,value){
+  const c=state.cotacoes.find(x=>x.id===cotId);
+  if(!c)return;
+  window._fb.save(window._fb.cols.cotacoes, {...c, desconto:+value||0});
+}
 function renderCotacoes(){
   const osComCot=[...new Set(state.cotacoes.map(c=>c.os))];
-  const todasOS=state.os.map(o=>o.num);
+  const todasOS=state.os.filter(o=>!o.dispensaPeca&&o.pecas&&o.pecas.length).map(o=>o.num);
   const osOrdenadas=[...new Set([...todasOS,...osComCot])];
   const cards=osOrdenadas.map(osNum=>{
     const o=state.os.find(x=>x.num===osNum);
+    const pecas=(o&&o.pecas)||[];
     const cotsOS=state.cotacoes.filter(c=>c.os===osNum);
-    const minValor=cotsOS.length?Math.min(...cotsOS.map(c=>calcTotalCotacao(c).total)):null;
-    const rows=cotsOS.map(c=>{
-      const {subtotal,descVal,total}=calcTotalCotacao(c);
-      const sugerido=minValor!==null&&total===minValor;
-      return `<tr style="${sugerido?'background:#DCFCE7':''}">
-        <td>${c.oficina||'—'}</td>
-        <td>${c.peca||'—'}</td>
-        <td>${c.fornecedor||'—'}</td>
-        <td>${fmt(c.vlrPeca||0)}</td>
-        <td style="color:var(--red)">${c.descPeca||0}%</td>
-        <td>${fmt(c.vlrMO||0)}</td>
-        <td>${fmt(subtotal)}</td>
-        <td>${c.prazo||0} dias</td>
-        <td>${c.pgto||'—'}</td>
-        <td><strong style="color:var(--green)">${fmt(total)}</strong>${sugerido?' <span class="badge badge-green">✅ Menor</span>':''}</td>
-        <td><button class="btn btn-sm btn-danger" onclick="delCotacao(${c.id})">🗑</button></td>
-      </tr>`;
+    const totais=cotsOS.map(c=>calcTotalCotacao(c).total);
+    const minValor=totais.length?Math.min(...totais):null;
+    const isOpen=window._cotOpenOS.has(osNum);
+
+    const fornCols=cotsOS.map(c=>`<th>${c.fornecedor||'—'} <button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="editCotacao(${c.id})">✏️</button><button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="delCotacao(${c.id})">🗑</button></th>`).join('');
+    const pecaRows=pecas.map(p=>{
+      const cells=cotsOS.map(c=>{
+        const val=(c.precos&&c.precos[p.id]!=null)?c.precos[p.id]:'';
+        return `<td><input type="number" step="0.01" value="${val}" style="width:100px" onchange="updateCotacaoPreco(${c.id},'${p.id}',this.value)"/></td>`;
+      }).join('');
+      return `<tr><td>${p.desc}</td><td>${p.marca||'—'}</td><td>${p.qtde}</td>${cells}</tr>`;
     }).join('');
+    const totalCells=cotsOS.map(c=>`<td><strong>${fmt(calcTotalCotacao(c).subtotal)}</strong></td>`).join('');
+    const descCells=cotsOS.map(c=>`<td><input type="number" step="0.1" min="0" max="100" value="${c.desconto||0}" style="width:70px" onchange="updateCotacaoDesconto(${c.id},this.value)"/>%</td>`).join('');
+    const finalCells=cotsOS.map(c=>{
+      const t=calcTotalCotacao(c).total;
+      const sugerido=minValor!==null&&t===minValor;
+      return `<td style="${sugerido?'background:#DCFCE7':''}"><strong style="color:var(--green)">${fmt(t)}</strong>${sugerido?' ✅':''}</td>`;
+    }).join('');
+
     return `<div class="card" style="margin-bottom:12px">
-      <div onclick="toggleCotacaoOS('${osNum}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between">
+      <div onclick="toggleCotacaoOS('${osNum}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         <div style="display:flex;align-items:center;gap:10px">
-          <span id="cot-icon-${osNum}" style="font-size:12px;color:var(--gray)">▶</span>
+          <span id="cot-icon-${osNum}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
           <strong>${osNum}</strong>
-          ${o?`<span style="font-size:12px;color:var(--gray)">${o.placa} · ${o.modelo||''}</span><span class="badge ${getStatusBadge(o.status)}">${o.status}</span>`:''}
+          ${o?`<span style="font-size:12px;color:var(--gray)">${o.placa} · ${o.modelo||''}${o.oficina?' · Oficina: '+o.oficina:''}</span><span class="badge ${getStatusBadge(o.status)}">${o.status}</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:12px">
-          <span style="font-size:12px;color:var(--gray)">${cotsOS.length} cotação(ões)</span>
+          <span style="font-size:12px;color:var(--gray)">${cotsOS.length} fornecedor(es)</span>
           ${cotsOS.length?`<strong style="color:var(--green);font-size:13px">${fmt(minValor)} menor</strong>`:''}
-          <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();novaCotacao('${osNum}')">+ Cotação</button>
+          <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();novaCotacao('${osNum}')">+ Fornecedor</button>
         </div>
       </div>
-      <div id="cot-body-${osNum}" style="display:none;margin-top:14px">
-        ${cotsOS.length?`<div class="table-wrap"><table>
-          <thead><tr><th>Oficina</th><th>Peça</th><th>Fornecedor Peça</th><th>Vlr. Peça</th><th>Desc. %</th><th>M.O.</th><th>Subtotal</th><th>Prazo</th><th>Pgto</th><th>Total</th><th></th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table></div>`:'<div style="text-align:center;padding:20px;color:var(--gray)">Nenhuma cotação para esta OS</div>'}
+      <div id="cot-body-${osNum}" style="display:${isOpen?'block':'none'};margin-top:14px">
+        ${!pecas.length?'<div style="text-align:center;padding:20px;color:var(--gray)">Esta OS não possui peças cadastradas.</div>'
+        :!cotsOS.length?'<div style="text-align:center;padding:20px;color:var(--gray)">Nenhum fornecedor adicionado ainda.</div>'
+        :`<div class="table-wrap"><table>
+          <thead><tr><th>Produto</th><th>Marca</th><th>Qntd</th>${fornCols}</tr></thead>
+          <tbody>${pecaRows}<tr style="background:var(--gray-light)"><td colspan="3"><strong>TOTAL</strong></td>${totalCells}</tr></tbody>
+        </table></div>
+        <div class="table-wrap" style="margin-top:10px"><table>
+          <thead><tr><th></th>${cotsOS.map(c=>`<th>${c.fornecedor||'—'}</th>`).join('')}</tr></thead>
+          <tbody>
+            <tr><td>Subtotal</td>${totalCells}</tr>
+            <tr><td>Desconto</td>${descCells}</tr>
+            <tr><td><strong>Total</strong></td>${finalCells}</tr>
+          </tbody>
+        </table></div>`}
       </div>
     </div>`;
   });
   return `
-    <div class="topbar"><div><div class="page-title">💰 Cotações</div><div class="page-sub">Responsável: Bruna — Clique na OS para ver as cotações</div></div>
+    <div class="topbar"><div><div class="page-title">💰 Cotações</div><div class="page-sub">Responsável: Bruna — Clique na OS para comparar fornecedores</div></div>
       <button class="btn btn-primary" onclick="novaCotacao()">+ Nova Cotação</button></div>
     <div class="content">
-      <div class="alert alert-blue">💡 A linha em <strong>verde</strong> indica a cotação de menor valor total. Total = Vlr. Peça − Desconto + M.O.</div>
-      ${cards.length?cards.join(''):'<div class="card"><div class="empty-state"><div class="empty-icon">💰</div><p>Nenhuma OS cadastrada</p></div></div>'}
+      <div class="alert alert-blue">💡 A coluna em <strong>verde</strong> indica o fornecedor de menor valor total. Total = Subtotal das peças − Desconto.</div>
+      ${cards.length?cards.join(''):'<div class="card"><div class="empty-state"><div class="empty-icon">💰</div><p>Nenhuma OS com peças pendentes de cotação</p></div></div>'}
     </div>`;
 }
-function calcCotacaoTotal(){
-  const vp=+document.getElementById('c-vlrpeca')?.value||0;
-  const desc=+document.getElementById('c-desc')?.value||0;
-  const vmo=+document.getElementById('c-vlrmo')?.value||0;
-  const subtotal=vp+vmo;
-  const descVal=vp*desc/100;
-  const total=subtotal-descVal;
-  const elSub=document.getElementById('c-subtotal-preview');
-  const elDesc=document.getElementById('c-desc-preview');
-  const elTot=document.getElementById('c-total-preview');
-  if(elSub)elSub.textContent=fmt(subtotal);
-  if(elDesc)elDesc.textContent='− '+fmt(descVal);
-  if(elTot)elTot.textContent=fmt(total);
+window._cotFornTmp=[];
+function pecasDaOSCotacao(osNum){
+  const o=state.os.find(x=>x.num===osNum);
+  return (o&&o.pecas)||[];
+}
+function renderCotPecasRef(osNum){
+  const pecas=pecasDaOSCotacao(osNum);
+  if(!pecas.length) return '<div class="empty-state" style="padding:8px;font-size:12px">Esta OS não possui peças cadastradas.</div>';
+  return `<div class="table-wrap"><table><thead><tr><th>Produto</th><th>Marca</th><th>Qntd</th></tr></thead><tbody>${pecas.map(p=>`<tr><td>${p.desc}</td><td>${p.marca||'—'}</td><td>${p.qtde}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function renderCotPrecoInputs(osNum,prefix,precos){
+  const pecas=pecasDaOSCotacao(osNum);
+  if(!pecas.length) return '';
+  return pecas.map(p=>`
+    <div class="form-group"><label>Valor — ${p.desc}${p.marca?' ('+p.marca+')':''} (Qtd ${p.qtde})</label><input type="number" step="0.01" id="${prefix}${p.id}" value="${precos&&precos[p.id]!=null?precos[p.id]:''}" placeholder="R$"/></div>`).join('');
+}
+function onCotacaoOSChange(){
+  const osNum=document.getElementById('c-os').value;
+  document.getElementById('cot-pecas-ref').innerHTML=renderCotPecasRef(osNum);
+  document.getElementById('cot-preco-inputs').innerHTML=renderCotPrecoInputs(osNum,'cf-preco-');
+}
+function renderCotFornRows(){
+  return window._cotFornTmp.map((f,i)=>{
+    const total=Object.values(f.precos||{}).reduce((a,v)=>a+(+v||0),0);
+    return `<div class="form-row" style="align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px">
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:13px">${f.fornecedor}</div>
+        <div style="font-size:12px;color:var(--gray)">Total peças: ${fmt(total)}${f.pgto?' · '+f.pgto:''}</div>
+      </div>
+      <button type="button" class="btn btn-sm btn-danger" onclick="removeFornecedorTmp(${i})">🗑</button>
+    </div>`;
+  }).join('') || '<div class="empty-state" style="padding:12px;font-size:12px">Nenhum fornecedor adicionado ainda</div>';
+}
+function refreshCotFornList(){
+  const el=document.getElementById('cot-forn-list');
+  if(el) el.innerHTML=renderCotFornRows();
+}
+function addFornecedorTmp(){
+  const osNum=document.getElementById('c-os').value;
+  const fornecedor=document.getElementById('c-forn').value.trim();
+  if(!osNum||!fornecedor){alert('Informe a OS e o Fornecedor.');return}
+  const pecas=pecasDaOSCotacao(osNum);
+  const precos={};
+  pecas.forEach(p=>{const el=document.getElementById('cf-preco-'+p.id); precos[p.id]=el?(+el.value||0):0;});
+  const pgto=document.getElementById('c-pgto').value;
+  const obs=document.getElementById('c-obs').value;
+  window._cotFornTmp.push({fornecedor,precos,pgto,obs});
+  document.getElementById('c-forn').value='';
+  document.getElementById('c-pgto').value='';
+  document.getElementById('c-obs').value='';
+  pecas.forEach(p=>{const el=document.getElementById('cf-preco-'+p.id); if(el) el.value='';});
+  refreshCotFornList();
+}
+function removeFornecedorTmp(i){
+  window._cotFornTmp.splice(i,1);
+  refreshCotFornList();
 }
 function novaCotacao(osPresel){
-  const osList=state.os.map(o=>`<option${o.num===osPresel?' selected':''}>${o.num}</option>`).join('');
-  const ofList=state.oficinas.map(o=>`<option>${o.fantasia}</option>`).join('');
+  window._cotFornTmp=[];
+  const osList=state.os.filter(o=>!o.dispensaPeca);
+  const osAtual=osPresel||(osList[0]?osList[0].num:'');
+  const osOptions=osList.map(o=>`<option value="${o.num}"${o.num===osAtual?' selected':''}>${o.num} — ${o.placa}</option>`).join('');
   const fornList=state.fornecedores.map(f=>`<option>${f.fantasia}</option>`).join('');
   openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
     <div class="modal" style="max-width:640px">
-      <div class="modal-header"><div class="modal-title">💰 Nova Cotação</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
-      <div class="form-row">
-        <div class="form-group"><label>OS # *</label><select id="c-os">${osList}</select></div>
-        <div class="form-group"><label>Prazo (dias)</label><input type="number" id="c-prazo"/></div>
-      </div>
-      <hr style="border:none;border-top:1px solid var(--border);margin:4px 0 12px">
-      <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Oficina / Mão de Obra</div>
-      <div class="form-row">
-        <div class="form-group"><label>Oficina *</label><input id="c-oficina" list="c-of-list" placeholder="Nome da oficina"/><datalist id="c-of-list">${ofList}</datalist></div>
-        <div class="form-group"><label>Vlr. Mão de Obra (R$)</label><input type="number" id="c-vlrmo" step="0.01" oninput="calcCotacaoTotal()"/></div>
-      </div>
-      <hr style="border:none;border-top:1px solid var(--border);margin:4px 0 12px">
-      <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Peça / Fornecedor</div>
-      <div class="form-row">
-        <div class="form-group"><label>Peça / Serviço</label><input id="c-peca"/></div>
-        <div class="form-group"><label>Fornecedor da Peça</label><input id="c-forn" list="c-forn-list"/><datalist id="c-forn-list">${fornList}</datalist></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Vlr. Peça (R$)</label><input type="number" id="c-vlrpeca" step="0.01" oninput="calcCotacaoTotal()"/></div>
-        <div class="form-group"><label>Desconto (%)</label><input type="number" id="c-desc" step="0.1" min="0" max="100" value="0" oninput="calcCotacaoTotal()"/></div>
-      </div>
-      <hr style="border:none;border-top:1px solid var(--border);margin:4px 0 12px">
+      <div class="modal-header"><div class="modal-title">💰 Adicionar Fornecedores à Cotação</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="form-group"><label>OS # *</label><select id="c-os" ${osPresel?'disabled':''} onchange="onCotacaoOSChange()">${osOptions}</select></div>
+      <div style="font-size:12px;font-weight:600;color:var(--gray);margin:8px 0 6px;text-transform:uppercase">Peças desta OS</div>
+      <div id="cot-pecas-ref">${renderCotPecasRef(osAtual)}</div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
+      <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Novo Fornecedor</div>
+      <div class="form-group"><label>Fornecedor *</label><input id="c-forn" list="c-forn-list" placeholder="Nome do fornecedor"/><datalist id="c-forn-list">${fornList}</datalist></div>
+      <div id="cot-preco-inputs">${renderCotPrecoInputs(osAtual,'cf-preco-')}</div>
       <div class="form-row">
         <div class="form-group"><label>Forma de Pgto</label><input id="c-pgto"/></div>
         <div class="form-group"><label>Observação</label><input id="c-obs"/></div>
       </div>
-      <div style="background:var(--gray-light);border-radius:8px;padding:12px;margin-bottom:4px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <span style="font-size:12px;color:var(--gray)">Subtotal (Peça + M.O.)</span>
-          <span id="c-subtotal-preview" style="font-size:14px;font-weight:600;color:var(--header)">${fmt(0)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span style="font-size:12px;color:var(--red)">Desconto</span>
-          <span id="c-desc-preview" style="font-size:14px;font-weight:600;color:var(--red)">− ${fmt(0)}</span>
-        </div>
-        <div style="border-top:1px solid var(--border);padding-top:8px;display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;font-weight:600;color:var(--blue)">Total da Cotação</span>
-          <span id="c-total-preview" style="font-size:18px;font-weight:700;color:var(--blue)">${fmt(0)}</span>
-        </div>
+      <div class="modal-actions" style="justify-content:flex-start;margin:0 0 12px">
+        <button type="button" class="btn btn-outline btn-sm" onclick="addFornecedorTmp()">+ Adicionar Fornecedor</button>
       </div>
+      <div id="cot-forn-list">${renderCotFornRows()}</div>
       <div class="modal-actions">
         <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-        <button class="btn btn-primary" onclick="saveCotacao()">Salvar</button>
+        <button class="btn btn-primary" onclick="saveCotacoes()">Salvar</button>
       </div>
     </div></div>`);
 }
-async function saveCotacao(){
+async function saveCotacoes(){
   const os=document.getElementById('c-os').value;
-  const oficina=document.getElementById('c-oficina').value;
-  if(!os||!oficina){alert('Informe a OS e a Oficina.');return}
-  const vlrPeca=+document.getElementById('c-vlrpeca').value||0;
-  const descPeca=+document.getElementById('c-desc').value||0;
-  const vlrMO=+document.getElementById('c-vlrmo').value||0;
-  const valor=vlrPeca-(vlrPeca*descPeca/100)+vlrMO;
-  const id=Date.now();
-  const obj={id,os,oficina,peca:document.getElementById('c-peca').value,fornecedor:document.getElementById('c-forn').value,vlrPeca,descPeca,vlrMO,valor,prazo:+document.getElementById('c-prazo').value||0,pgto:document.getElementById('c-pgto').value,obs:document.getElementById('c-obs').value,escolhido:false};
-  await window._fb.save(window._fb.cols.cotacoes, obj);
+  if(!os){alert('Informe a OS.');return}
+  if(!window._cotFornTmp.length){alert('Adicione ao menos um fornecedor.');return}
+  for(const f of window._cotFornTmp){
+    const id=Date.now()+Math.floor(Math.random()*1000);
+    await window._fb.save(window._fb.cols.cotacoes, {id,os,fornecedor:f.fornecedor,desconto:0,precos:f.precos,pgto:f.pgto,obs:f.obs,escolhido:false});
+  }
+  window._cotOpenOS.add(os);
   closeModal();
 }
-async function delCotacao(id){if(!confirm('Remover cotação?'))return;await window._fb.del(window._fb.cols.cotacoes,id);}
+function editCotacao(id){
+  const c=state.cotacoes.find(x=>x.id===id);
+  if(!c)return;
+  const fornList=state.fornecedores.map(f=>`<option>${f.fantasia}</option>`).join('');
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header"><div class="modal-title">✏️ Editar Fornecedor — ${c.os}</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <input type="hidden" id="cf-edit-id" value="${id}"/>
+      <div class="form-group"><label>Fornecedor *</label><input id="cf-forn-edit" list="cf-forn-edit-list" value="${c.fornecedor||''}"/><datalist id="cf-forn-edit-list">${fornList}</datalist></div>
+      <div style="font-size:12px;font-weight:600;color:var(--gray);margin:8px 0 6px;text-transform:uppercase">Valores por peça</div>
+      ${renderCotPrecoInputs(c.os,'cfe-preco-',c.precos)}
+      <div class="form-row">
+        <div class="form-group"><label>Forma de Pgto</label><input id="cf-pgto-edit" value="${c.pgto||''}"/></div>
+        <div class="form-group"><label>Observação</label><input id="cf-obs-edit" value="${c.obs||''}"/></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="updateCotacao()">Salvar</button>
+      </div>
+    </div></div>`);
+}
+async function updateCotacao(){
+  const id=+document.getElementById('cf-edit-id').value;
+  const c=state.cotacoes.find(x=>x.id===id);
+  if(!c)return;
+  const pecas=pecasDaOSCotacao(c.os);
+  const precos={};
+  pecas.forEach(p=>{const el=document.getElementById('cfe-preco-'+p.id); precos[p.id]=el?(+el.value||0):0;});
+  const updated={...c,
+    fornecedor:document.getElementById('cf-forn-edit').value.trim(),
+    precos,
+    pgto:document.getElementById('cf-pgto-edit').value,
+    obs:document.getElementById('cf-obs-edit').value
+  };
+  await window._fb.save(window._fb.cols.cotacoes, updated);
+  closeModal();
+}
+async function delCotacao(id){if(!confirm('Remover fornecedor desta cotação?'))return;await window._fb.del(window._fb.cols.cotacoes,id);}
 
 // ─── APROVAÇÕES (100% integrado com Cotações) ─────────────────────────────
+window._apOpenOS=new Set();
 function toggleAprovOS(osNum){
   const el=document.getElementById('ap-body-'+osNum);
   if(!el)return;
   const isOpen=el.style.display!=='none';
   el.style.display=isOpen?'none':'block';
+  if(isOpen) window._apOpenOS.delete(osNum); else window._apOpenOS.add(osNum);
   const icon=document.getElementById('ap-icon-'+osNum);
   if(icon)icon.textContent=isOpen?'▶':'▼';
 }
@@ -608,7 +796,7 @@ function renderAprovacoes(){
     <div class="topbar"><div><div class="page-title">✅ Aprovações</div><div class="page-sub">Até R$ 50 → Júlio · Acima de R$ 50 → Anselmo (senha requerida)</div></div></div>
     <div class="content">
       <div class="alert alert-amber">🔒 Aprovações acima de R$ 50,00 exigem autenticação de Anselmo.</div>
-      <div class="alert alert-blue">💡 A cotação em <strong>verde</strong> é a recomendada (menor valor total). Aprovar uma cotação diferente pedirá confirmação. Ao aprovar uma cotação, as demais da mesma OS ficam bloqueadas.</div>
+      <div class="alert alert-blue">💡 A coluna em <strong>verde</strong> é a recomendada (menor valor total). Aprovar um fornecedor diferente pedirá confirmação. Ao aprovar um fornecedor, os demais da mesma OS ficam bloqueados.</div>
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
           <div class="form-group" style="margin:0;flex:1;min-width:140px">
@@ -645,6 +833,7 @@ function renderAprovacoesFiltro(){
 
   const cards=osOrdenadas.map(osNum=>{
     const o=state.os.find(x=>x.num===osNum);
+    const pecas=(o&&o.pecas)||[];
     const cotsOS=state.cotacoes.filter(c=>c.os===osNum);
     let aprovsOS=state.aprovacoes.filter(a=>a.os===osNum&&a.cotacaoId);
 
@@ -683,48 +872,51 @@ function renderAprovacoesFiltro(){
     if(cotAprovada) statusResumo='Aprovada';
     else if(cotsOS.length && cotsOS.every(c=>{const a=aprovsOS.find(x=>x.cotacaoId===c.id);return a&&a.status==='Reprovada';})) statusResumo='Reprovada';
 
-    const rowsCot=cotsVisiveis.map(c=>{
-      const {subtotal,descVal,total}=calcTotalCotacao(c);
-      const sugerido=minValor!==null&&total===minValor;
+    const isOpen=window._apOpenOS.has(osNum);
+
+    const fornCols=cotsVisiveis.map(c=>`<th>${c.fornecedor||'—'}</th>`).join('');
+    const pecaRows=pecas.map(p=>{
+      const cells=cotsVisiveis.map(c=>{
+        const val=(c.precos&&c.precos[p.id]!=null)?c.precos[p.id]:0;
+        return `<td>${fmt(val)}</td>`;
+      }).join('');
+      return `<tr><td>${p.desc}</td><td>${p.marca||'—'}</td><td>${p.qtde}</td>${cells}</tr>`;
+    }).join('');
+    const totalCells=cotsVisiveis.map(c=>`<td><strong>${fmt(calcTotalCotacao(c).subtotal)}</strong></td>`).join('');
+    const descCells=cotsVisiveis.map(c=>`<td style="color:var(--red)">${c.desconto||0}%</td>`).join('');
+    const finalCells=cotsVisiveis.map(c=>{
+      const t=calcTotalCotacao(c).total;
+      const sugerido=minValor!==null&&t===minValor;
+      return `<td style="${sugerido?'background:#DCFCE7':''}"><strong style="color:var(--green)">${fmt(t)}</strong>${sugerido?' ✅':''}</td>`;
+    }).join('');
+    const statusCells=cotsVisiveis.map(c=>{
       const aprovDaCot=aprovsOS.find(a=>a.cotacaoId===c.id);
       const status=aprovDaCot?aprovDaCot.status:'Aguardando Aprovação';
-
+      const statusTag = status==='Aprovada'
+        ? `<span class="badge ${getStatusBadge(status)}">Aprovada · ${fmt(aprovDaCot.valor)}</span>`
+        : `<span class="badge ${getStatusBadge(status)}">${status}</span>`;
+      return `<td>${statusTag}</td>`;
+    }).join('');
+    const acaoCells=cotsVisiveis.map(c=>{
+      const aprovDaCot=aprovsOS.find(a=>a.cotacaoId===c.id);
+      const status=aprovDaCot?aprovDaCot.status:'Aguardando Aprovação';
       // Bloqueia ações se: esta cotação já foi decidida, OU outra cotação da mesma OS já foi aprovada
       const bloqueadaPorOutra=!!cotAprovada && (!aprovDaCot || aprovDaCot.status!=='Aprovada');
       const jaDecidida=status!=='Aguardando Aprovação';
       const podeAgir=!jaDecidida && !bloqueadaPorOutra;
-
-      const statusTag = status==='Aprovada'
-        ? `<span class="badge ${getStatusBadge(status)}">Aprovada · ${fmt(aprovDaCot.valor)}</span>`
-        : `<span class="badge ${getStatusBadge(status)}">${status}</span>`;
-
       const btns=podeAgir
         ? `<button class="btn btn-sm btn-success" onclick="tryApproveCotacao('${osNum}',${c.id})">✅ Aprovar</button>
            <button class="btn btn-sm btn-danger" onclick="reproveCotacao('${osNum}',${c.id})">❌ Reprovar</button>`
         : '';
-
-      return `<tr style="${sugerido?'background:#DCFCE7':''}">
-        <td>${c.oficina||'—'}</td>
-        <td>${c.peca||'—'}</td>
-        <td>${c.fornecedor||'—'}</td>
-        <td>${fmt(c.vlrPeca||0)}</td>
-        <td style="color:var(--red)">${c.descPeca||0}%</td>
-        <td>${fmt(c.vlrMO||0)}</td>
-        <td>${fmt(subtotal)}</td>
-        <td>${c.prazo||0} dias</td>
-        <td>${c.pgto||'—'}</td>
-        <td><strong style="color:var(--green)">${fmt(total)}</strong>${sugerido?' <span class="badge badge-green">✅ Recomendada</span>':''}</td>
-        <td>${statusTag}</td>
-        <td><div class="action-btns">${btns}</div></td>
-      </tr>`;
+      return `<td><div class="action-btns">${btns}</div></td>`;
     }).join('');
 
     return `<div class="card" style="margin-bottom:12px">
       <div onclick="toggleAprovOS('${osNum}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         <div style="display:flex;align-items:center;gap:10px">
-          <span id="ap-icon-${osNum}" style="font-size:12px;color:var(--gray)">▶</span>
+          <span id="ap-icon-${osNum}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
           <strong>${osNum}</strong>
-          ${o?`<span style="font-size:12px;color:var(--gray)">${o.placa} · ${o.modelo||''}</span><span class="badge ${getStatusBadge(o.status)}">${o.status}</span>`:''}
+          ${o?`<span style="font-size:12px;color:var(--gray)">${o.placa} · ${o.modelo||''}${o.oficina?' · Oficina: '+o.oficina:''}${o.mo?' · M.O.: '+fmt(o.mo):''}</span><span class="badge ${getStatusBadge(o.status)}">${o.status}</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <span style="font-size:12px;color:var(--gray)">${cotsOS.length} cotação(ões)</span>
@@ -732,11 +924,23 @@ function renderAprovacoesFiltro(){
           <span class="badge ${getStatusBadge(statusResumo)}">${statusResumo}${cotAprovada?' · '+fmt(aprovsOS.find(a=>a.cotacaoId===cotAprovada.id).valor):''}</span>
         </div>
       </div>
-      <div id="ap-body-${osNum}" style="display:none;margin-top:14px">
-        ${rowsCot?`<div class="table-wrap"><table>
-          <thead><tr><th>Oficina</th><th>Peça</th><th>Fornecedor Peça</th><th>Vlr. Peça</th><th>Desc. %</th><th>M.O.</th><th>Subtotal</th><th>Prazo</th><th>Pgto</th><th>Total</th><th>Status</th><th>Ações</th></tr></thead>
-          <tbody>${rowsCot}</tbody>
-        </table></div>`:'<div style="text-align:center;padding:20px;color:var(--gray)">Nenhuma cotação encontrada para os filtros aplicados</div>'}
+      <div id="ap-body-${osNum}" style="display:${isOpen?'block':'none'};margin-top:14px">
+        ${!pecas.length?'<div style="text-align:center;padding:20px;color:var(--gray)">Esta OS não possui peças cadastradas.</div>'
+        :!cotsVisiveis.length?'<div style="text-align:center;padding:20px;color:var(--gray)">Nenhuma cotação encontrada para os filtros aplicados</div>'
+        :`<div class="table-wrap"><table>
+          <thead><tr><th>Produto</th><th>Marca</th><th>Qntd</th>${fornCols}</tr></thead>
+          <tbody>${pecaRows}<tr style="background:var(--gray-light)"><td colspan="3"><strong>TOTAL</strong></td>${totalCells}</tr></tbody>
+        </table></div>
+        <div class="table-wrap" style="margin-top:10px"><table>
+          <thead><tr><th></th>${cotsVisiveis.map(c=>`<th>${c.fornecedor||'—'}</th>`).join('')}</tr></thead>
+          <tbody>
+            <tr><td>Subtotal</td>${totalCells}</tr>
+            <tr><td>Desconto</td>${descCells}</tr>
+            <tr><td><strong>Total</strong></td>${finalCells}</tr>
+            <tr><td>Status</td>${statusCells}</tr>
+            <tr><td>Ações</td>${acaoCells}</tr>
+          </tbody>
+        </table></div>`}
       </div>
     </div>`;
   }).filter(Boolean);
@@ -772,7 +976,7 @@ function tryApproveCotacao(osNum,cotacaoId){
   };
 
   if(!ehRecomendada){
-    const ok=confirm(`Esta NÃO é a cotação recomendada pelo sistema (menor valor: ${fmt(minValor)}).\n\nValor desta cotação: ${fmt(total)} — Oficina: ${cot.oficina||'—'}.\n\nDeseja realmente aprovar esta cotação mesmo assim?`);
+    const ok=confirm(`Esta NÃO é a cotação recomendada pelo sistema (menor valor: ${fmt(minValor)}).\n\nValor desta cotação: ${fmt(total)} — Fornecedor: ${cot.fornecedor||'—'}.\n\nDeseja realmente aprovar esta cotação mesmo assim?`);
     if(!ok) return;
   }
   prosseguir();
@@ -811,7 +1015,7 @@ async function doApproveCotacao(osNum,cotacaoId,valor){
     status:'Aprovada',
     data: today(),
     autorizado: valor>50?'Anselmo':'Júlio',
-    obs: aprov?.obs||(cot.oficina?`Cotação: ${cot.oficina}`:'')
+    obs: aprov?.obs||(cot.fornecedor?`Cotação: ${cot.fornecedor}`:'')
   };
   await window._fb.save(window._fb.cols.aprovacoes, obj);
 
@@ -831,7 +1035,7 @@ async function reproveCotacao(osNum,cotacaoId){
     status:'Reprovada',
     data: today(),
     autorizado: aprov?.autorizado||'',
-    obs: aprov?.obs||(cot.oficina?`Cotação: ${cot.oficina}`:'')
+    obs: aprov?.obs||(cot.fornecedor?`Cotação: ${cot.fornecedor}`:'')
   };
   await window._fb.save(window._fb.cols.aprovacoes, obj);
 }
@@ -845,61 +1049,132 @@ function getManutencoesGeradas(){
       const cot=state.cotacoes.find(c=>c.id===a.cotacaoId);
       if(!cot) return null;
       const o=state.os.find(x=>x.num===a.os);
-      const {total}=calcTotalCotacao(cot);
-      const vlrPecas=(+cot.vlrPeca||0)-((+cot.vlrPeca||0)*(+cot.descPeca||0)/100);
-      const vlrMO=(+cot.vlrMO||0);
-      // descrição editável manualmente; usa override salvo em state.manutDescs, senão monta a partir da peça/cotação
+      const {total:vlrPecas}=calcTotalCotacao(cot);
+      const vlrMO=+(o?.mo)||0;
+      // solução editável manualmente; usa override salvo em state.manutDescs, senão vem da Solução cadastrada na OS
       const override=state.manutDescs?.[a.cotacaoId];
-      const desc=override!=null?override:(cot.peca||cot.obs||'—');
+      const pecasResumo=o?.pecas?.length?o.pecas.map(p=>`${p.qtde}x ${p.desc}`).join(', '):'';
+      const desc=override!=null?override:(o?.solucao||pecasResumo||cot.obs||'—');
       return {
         cotacaoId:a.cotacaoId,
         os:a.os,
         data:a.data,
-        oficina:cot.oficina,
-        tipo:'Corretiva',
+        oficina:o?.oficina||cot.fornecedor||'',
         desc,
         vlrPecas,
         vlrMO,
         total:vlrPecas+vlrMO,
         nf:cot.obs||'—',
-        km:o?o.km:null
+        km:o?o.km:null,
+        placa:o?.placa||'',
+        status:o?.status||''
       };
     })
     .filter(Boolean);
 }
 
 function renderManutencoes(){
-  const linhas=getManutencoesGeradas();
+  const linhasTodas=getManutencoesGeradas().filter(m=>m.status!=='Concluída');
+  const osOptions=[...new Set(linhasTodas.map(m=>m.os))].map(os=>`<option value="${os}">${os}</option>`).join('');
+  const placaOptions=[...new Set(linhasTodas.map(m=>m.placa).filter(Boolean))].map(p=>`<option value="${p}">${p}</option>`).join('');
+  return `
+    <div class="topbar"><div><div class="page-title">🔧 Manutenções</div><div class="page-sub">Responsável: Bruna — Gerado automaticamente a partir das cotações aprovadas</div></div></div>
+    <div class="content">
+      <div class="alert alert-blue">💡 Estas linhas vêm automaticamente das cotações aprovadas em ✅ Aprovações. Ao dar baixa, a OS sai desta lista e passa para o Histórico do veículo.</div>
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div class="form-group" style="margin:0;flex:1;min-width:140px">
+            <label>OS #</label>
+            <select id="mn-f-os" onchange="renderManutencoesFiltro()">
+              <option value="">Todas</option>${osOptions}
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;flex:1;min-width:140px">
+            <label>Veículo (Placa)</label>
+            <select id="mn-f-placa" onchange="renderManutencoesFiltro()">
+              <option value="">Todos</option>${placaOptions}
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;flex:1;min-width:140px">
+            <label>Data início</label>
+            <input type="date" id="mn-f-ini" onchange="renderManutencoesFiltro()"/>
+          </div>
+          <div class="form-group" style="margin:0;flex:1;min-width:140px">
+            <label>Data fim</label>
+            <input type="date" id="mn-f-fim" onchange="renderManutencoesFiltro()"/>
+          </div>
+          <button class="btn btn-outline" style="margin-bottom:1px" onclick="limparFiltroManut()">✕ Limpar</button>
+        </div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:16px" id="mn-kpis"></div>
+      <div class="card">
+        <div class="table-wrap">
+          <table><thead><tr><th>OS #</th><th>Data</th><th>KM</th><th>Oficina</th><th>Solução</th><th>Vlr. Peças</th><th>Vlr. M.O.</th><th>Total</th><th>Ações</th></tr></thead>
+          <tbody id="mn-rows"></tbody></table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderManutencoesFiltro(){
+  const osF=document.getElementById('mn-f-os')?.value||'';
+  const placaF=document.getElementById('mn-f-placa')?.value||'';
+  const ini=document.getElementById('mn-f-ini')?.value||'';
+  const fim=document.getElementById('mn-f-fim')?.value||'';
+
+  let linhas=getManutencoesGeradas().filter(m=>m.status!=='Concluída');
+  if(osF) linhas=linhas.filter(m=>m.os===osF);
+  if(placaF) linhas=linhas.filter(m=>m.placa===placaF);
+  if(ini||fim){
+    linhas=linhas.filter(m=>{
+      const d=m.data||'';
+      if(!d) return true;
+      if(ini&&d<ini) return false;
+      if(fim&&d>fim) return false;
+      return true;
+    });
+  }
+
   const rows=linhas.map(m=>`<tr>
       <td><strong>${m.os}</strong></td>
       <td>${fmtDate(m.data)}</td>
       <td>${m.km!=null?Number(m.km).toLocaleString('pt-BR')+' km':'—'}</td>
       <td>${m.oficina||'—'}</td>
-      <td><span class="badge ${getStatusBadge(m.tipo)}">${m.tipo}</span></td>
       <td>${m.desc}</td>
       <td>${fmt(m.vlrPecas)}</td>
       <td>${fmt(m.vlrMO)}</td>
       <td><strong>${fmt(m.total)}</strong></td>
-      <td><button class="btn btn-sm btn-outline" onclick="editManutDesc('${m.cotacaoId}')">✏️ Descrição</button></td>
+      <td><div class="action-btns">
+        <button class="btn btn-sm btn-outline" onclick="editManutDesc('${m.cotacaoId}')">✏️ Solução</button>
+        <button class="btn btn-sm btn-success" onclick="baixarOS('${m.os}')">✅ Baixar OS</button>
+      </div></td>
     </tr>`).join('');
+
   const totP=linhas.reduce((a,m)=>a+m.vlrPecas,0);
   const totMO=linhas.reduce((a,m)=>a+m.vlrMO,0);
-  return `
-    <div class="topbar"><div><div class="page-title">🔧 Manutenções</div><div class="page-sub">Responsável: Bruna — Gerado automaticamente a partir das cotações aprovadas</div></div></div>
-    <div class="content">
-      <div class="alert alert-blue">💡 Estas linhas vêm automaticamente das cotações aprovadas em ✅ Aprovações. Apenas a descrição pode ser editada aqui.</div>
-      <div class="kpi-grid" style="margin-bottom:16px">
-        <div class="kpi"><div class="kpi-label">Total Peças</div><div class="kpi-val" style="color:var(--blue);font-size:18px">${fmt(totP)}</div></div>
-        <div class="kpi"><div class="kpi-label">Total M.O.</div><div class="kpi-val" style="color:var(--purple);font-size:18px">${fmt(totMO)}</div></div>
-        <div class="kpi"><div class="kpi-label">Total Geral</div><div class="kpi-val" style="color:var(--green);font-size:18px">${fmt(totP+totMO)}</div></div>
-      </div>
-      <div class="card">
-        <div class="table-wrap">
-          <table><thead><tr><th>OS #</th><th>Data</th><th>KM</th><th>Oficina</th><th>Tipo</th><th>Descrição do serviço</th><th>Vlr. Peças</th><th>Vlr. M.O.</th><th>Total</th><th>Alterar descrição</th></tr></thead>
-          <tbody>${rows||'<tr><td colspan="11" style="text-align:center;padding:24px;color:#64748B">Nenhuma cotação aprovada ainda</td></tr>'}</tbody></table>
-        </div>
-      </div>
-    </div>`;
+  const kpis=document.getElementById('mn-kpis');
+  if(kpis) kpis.innerHTML=`
+    <div class="kpi"><div class="kpi-label">Total Peças</div><div class="kpi-val" style="color:var(--blue);font-size:18px">${fmt(totP)}</div></div>
+    <div class="kpi"><div class="kpi-label">Total M.O.</div><div class="kpi-val" style="color:var(--purple);font-size:18px">${fmt(totMO)}</div></div>
+    <div class="kpi"><div class="kpi-label">Total Geral</div><div class="kpi-val" style="color:var(--green);font-size:18px">${fmt(totP+totMO)}</div></div>`;
+
+  const tbody=document.getElementById('mn-rows');
+  if(tbody) tbody.innerHTML=rows||'<tr><td colspan="9" style="text-align:center;padding:24px;color:#64748B">Nenhuma OS pendente encontrada</td></tr>';
+}
+
+function limparFiltroManut(){
+  const os=document.getElementById('mn-f-os');if(os)os.value='';
+  const placa=document.getElementById('mn-f-placa');if(placa)placa.value='';
+  const ini=document.getElementById('mn-f-ini');if(ini)ini.value='';
+  const fim=document.getElementById('mn-f-fim');if(fim)fim.value='';
+  renderManutencoesFiltro();
+}
+
+async function baixarOS(osNum){
+  if(!confirm(`Dar baixa na OS ${osNum}? Ela será marcada como Concluída e passará a aparecer apenas no Histórico do veículo.`))return;
+  const o=state.os.find(x=>x.num===osNum);
+  if(!o)return;
+  await window._fb.save(window._fb.cols.os, {...o, status:'Concluída'});
 }
 
 function editManutDesc(cotacaoId){
@@ -908,9 +1183,9 @@ function editManutDesc(cotacaoId){
   if(!m)return;
   openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">✏️ Editar Descrição — ${m.os}</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">✏️ Editar Solução — ${m.os}</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
       <input type="hidden" id="md-cotid" value="${cotacaoId}"/>
-      <div class="form-group"><label>Descrição</label><textarea id="md-desc" rows="3">${m.desc}</textarea></div>
+      <div class="form-group"><label>Solução</label><textarea id="md-desc" rows="3">${m.desc}</textarea></div>
       <div class="modal-actions">
         <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveManutDesc()">Salvar</button>
@@ -1018,18 +1293,18 @@ function renderHistoricoResult(){
   if(!placa){div.innerHTML='';return}
   const v=getVeiculo(placa);
   const osPlaca=state.os.filter(o=>o.placa===placa);
-  const manutIds=osPlaca.map(o=>o.num);
-  const manuts=state.manutencoes.filter(m=>manutIds.includes(m.os));
+  const geradas=getManutencoesGeradas();
+  const manuts=geradas.filter(m=>m.placa===placa);
   const total=manuts.reduce((a,m)=>a+(+m.vlrPecas||0)+(+m.vlrMO||0),0);
   const ultima=manuts[manuts.length-1];
   const rows=osPlaca.map(o=>{
-    const m=state.manutencoes.find(x=>x.os===o.num);
+    const m=geradas.find(x=>x.os===o.num);
     return `<tr>
       <td><strong>${o.num}</strong></td>
       <td>${fmtDate(o.data)}</td>
       <td><span class="badge ${getStatusBadge(o.status)}">${o.status}</span></td>
       <td>${m?m.oficina:'—'}</td>
-      <td>${m?m.tipo:'—'}</td>
+      <td>${o.solucao||'—'}</td>
       <td>${m?fmt((+m.vlrPecas||0)+(+m.vlrMO||0)):'—'}</td>
       <td>${m?m.nf:'—'}</td>
       <td>${o.problema}</td>
@@ -1354,6 +1629,7 @@ function render(){
   const fn=pages[state.page]||renderHome;
   document.getElementById('main-content').innerHTML=fn();
   if(state.page==='aprovacoes') renderAprovacoesFiltro();
+  if(state.page==='manutencoes') renderManutencoesFiltro();
   document.querySelectorAll('.nav-item').forEach(el=>{
     el.classList.toggle('active',el.dataset.page===state.page);
   });

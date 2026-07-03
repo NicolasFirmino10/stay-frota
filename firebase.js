@@ -117,8 +117,8 @@ const SEED_OS = [
   {id:5,num:'OS-005',data:'2025-06-18',placa:'MNO-7890',modelo:'Chevrolet S10 2.8',motorista:'Pedro Rocha',km:52000,problema:'Pneu traseiro direito furado',status:'Diagnóstico/Oficina',prioridade:'Urgente'},
 ];
 const SEED_COTACOES = [
-  {id:1,os:'OS-003',peca:'Compressor Ar Cond.',fornecedor:'Oficina Central Fortaleza',valor:850,prazo:5,pgto:'Boleto 30d',obs:'',escolhido:true},
-  {id:2,os:'OS-003',peca:'Compressor Ar Cond.',fornecedor:'Auto Peças Norte',valor:780,prazo:7,pgto:'À vista',obs:'Sem garantia',escolhido:false},
+  {id:1,os:'OS-003',fornecedor:'Oficina Central Fortaleza',desconto:0,precos:{},pgto:'Boleto 30d',obs:'',escolhido:true},
+  {id:2,os:'OS-003',fornecedor:'Auto Peças Norte',desconto:0,precos:{},pgto:'À vista',obs:'Sem garantia',escolhido:false},
 ];
 const SEED_APROVACOES = [
   {id:1,os:'OS-001',valor:45,aprovador:'Júlio',status:'Aprovada',data:'2025-06-02',autorizado:'Júlio',obs:''},
@@ -181,7 +181,6 @@ async function loadAllData() {
       vlrMO: x.vlrMO !== undefined ? Number(x.vlrMO) : undefined,
       vlrUnit: x.vlrUnit !== undefined ? Number(x.vlrUnit) : undefined,
       qtde: x.qtde !== undefined ? Number(x.qtde) : undefined,
-      prazo: x.prazo !== undefined ? Number(x.prazo) : undefined,
     }));
 
     window.state.veiculos = norm(veiculos);
@@ -228,7 +227,6 @@ function setupListeners() {
           vlrMO: data.vlrMO !== undefined ? Number(data.vlrMO) : undefined,
           vlrUnit: data.vlrUnit !== undefined ? Number(data.vlrUnit) : undefined,
           qtde: data.qtde !== undefined ? Number(data.qtde) : undefined,
-          prazo: data.prazo !== undefined ? Number(data.prazo) : undefined,
         };
       });
       window.state[stateKey] = items;
