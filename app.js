@@ -13,7 +13,7 @@ function getVeiculo(placa){return state.veiculos.find(v=>v.placa===placa)||{}}
 function getStatusBadge(s){
   const map={
     'Concluída':'badge-green','Execução':'badge-blue','Aguardando Aprovação':'badge-amber',
-    'Cotação':'badge-purple','Diagnóstico/Oficina':'badge-red','Aberta':'badge-gray',
+    'Cotação':'badge-purple','Diagnóstico / Oficina':'badge-red','Aberta':'badge-gray',
     'Aprovada':'badge-green','Reprovada':'badge-red','Cancelada':'badge-gray','Descartada':'badge-gray',
     'Preventiva':'badge-green','Corretiva':'badge-amber'
   };
@@ -109,7 +109,7 @@ function renderHome(){
   os.forEach(o=>{statusCounts[o.status]=(statusCounts[o.status]||0)+1});
   const totalOS=os.length;
   const statusList=[
-    {s:'Aberta',c:'badge-gray'},{s:'Diagnóstico/Oficina',c:'badge-red'},{s:'Cotação',c:'badge-purple'},
+    {s:'Aberta',c:'badge-gray'},{s:'Diagnóstico / Oficina',c:'badge-red'},{s:'Cotação',c:'badge-purple'},
     {s:'Aguardando Aprovação',c:'badge-amber'},{s:'Aprovada',c:'badge-blue'},{s:'Execução',c:'badge-blue'},
     {s:'Concluída',c:'badge-green'},{s:'Cancelada',c:'badge-gray'}
   ];
@@ -132,9 +132,9 @@ function renderHome(){
     const pct=Math.round((gasto/maxGasto)*100);
     return `<div class="top5-item"><div class="top5-rank ${rankClasses[i]}">${i+1}</div><div style="flex:1"><div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${placa}</strong> <span style="font-size:12px;color:var(--gray)">${v.modelo||''}</span></div><strong style="color:var(--green)">${fmt(gasto)}</strong></div><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div></div>`;
   }).join(''):`<div class="empty-state"><div class="empty-icon">🏎</div><p>Nenhum dado disponível</p></div>`;
-  const statusManut=['Diagnóstico/Oficina','Cotação','Aguardando Aprovação','Aprovada','Execução'];
+  const statusManut=['Diagnóstico / Oficina','Cotação','Aguardando Aprovação','Aprovada','Execução'];
   const veicsManut=new Set(os.filter(o=>statusManut.includes(o.status)).map(o=>o.placa)).size;
-  const diag=new Set(os.filter(o=>o.status==='Diagnóstico/Oficina').map(o=>o.placa)).size;
+  const diag=new Set(os.filter(o=>o.status==='Diagnóstico / Oficina').map(o=>o.placa)).size;
   const aguard=new Set(os.filter(o=>o.status==='Aguardando Aprovação').map(o=>o.placa)).size;
   const exec=new Set(os.filter(o=>o.status==='Execução').map(o=>o.placa)).size;
   const pctDiag=veicsManut?Math.round((diag/veicsManut)*100):0;
@@ -157,7 +157,7 @@ function renderHome(){
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
           <div style="background:var(--red-light);border:1px solid #FECACA;border-radius:10px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:var(--red);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Diagnóstico/Oficina</div>
+            <div style="font-size:10px;color:var(--red);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Diagnóstico / Oficina</div>
             <div style="font-size:24px;font-weight:700;color:var(--red);margin:4px 0">${diag}</div>
             <div style="font-size:11px;color:var(--gray)">${pctDiag}% da manutenção</div>
           </div>
@@ -304,7 +304,7 @@ function osOficinaMoHTML(o){
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0 4px;cursor:pointer">
       <input type="checkbox" id="os-dispensa${suf}" ${o&&o.dispensaPeca?'checked':''} onchange="toggleOSDispensaPeca(${o?'true':'false'})"/>
-      Dispensar necessidade de peça (não passa pela seção de Cotações)
+      Dispensar necessidade de peça
     </label>`;
 }
 function toggleOSDispensaPeca(isEdit){
@@ -357,9 +357,9 @@ function novaOS(){
       <div class="form-row">
         <div class="form-group"><label>KM Atual *</label><input type="number" id="os-km"/></div>
       </div>
-      <div class="form-group"><label>Defeito Relatado *</label><textarea id="os-problema" rows="3" oninput="this.value=this.value.toUpperCase()"></textarea></div>
-      <div class="form-group"><label>Solução</label><textarea id="os-solucao" rows="3"></textarea></div>
-      <div class="form-group"><label>Status</label><select id="os-status"><option>Aberta</option><option>Diagnóstico/Oficina</option><option>Cotação</option><option>Aguardando Aprovação</option><option>Execução</option><option>Concluída</option><option>Cancelada</option></select></div>
+      <div class="form-group"><label>Defeito Relatado pelo técnico *</label><textarea id="os-problema" rows="3" oninput="this.value=this.value.toUpperCase()"></textarea></div>
+      <div class="form-group"><label>Serviço a executar</label><textarea id="os-solucao" rows="3"></textarea></div>
+      <div class="form-group"><label>Status</label><select id="os-status"><option>Aberta</option><option>Diagnóstico / Oficina</option><option>Cotação</option><option>Aguardando Aprovação</option><option>Execução</option><option>Concluída</option><option>Cancelada</option></select></div>
       ${osOficinaMoHTML()}
       ${osPecasSectionHTML(false)}
       <div class="modal-actions">
@@ -422,9 +422,9 @@ function editOS(id){
         <div class="form-group"><label>Motorista</label><input id="os-motorista-edit" value="${o.motorista}" readonly/></div>
       </div>
       <div class="form-group"><label>KM</label><input type="number" id="os-km-edit" value="${o.km}"/></div>
-      <div class="form-group"><label>Defeito</label><textarea id="os-problema-edit" rows="3" oninput="this.value=this.value.toUpperCase()">${o.problema}</textarea></div>
-      <div class="form-group"><label>Solução</label><textarea id="os-solucao-edit" rows="3">${o.solucao||''}</textarea></div>
-      <div class="form-group"><label>Status</label><select id="os-status-edit">${['Aberta','Diagnóstico/Oficina','Cotação','Aguardando Aprovação','Execução','Concluída','Cancelada'].map(s=>`<option${s===o.status?' selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Defeito Relatado</label><textarea id="os-problema-edit" rows="3" oninput="this.value=this.value.toUpperCase()">${o.problema}</textarea></div>
+      <div class="form-group"><label>Serviço a executar</label><textarea id="os-solucao-edit" rows="3">${o.solucao||''}</textarea></div>
+      <div class="form-group"><label>Status</label><select id="os-status-edit">${['Aberta','Diagnóstico / Oficina','Cotação','Aguardando Aprovação','Execução','Concluída','Cancelada'].map(s=>`<option${s===o.status?' selected':''}>${s}</option>`).join('')}</select></div>
       ${osOficinaMoHTML(o)}
       ${osPecasSectionHTML(!!o.dispensaPeca)}
       <div class="modal-actions">
@@ -1273,59 +1273,112 @@ function renderHistorico(){
   const placas=[...new Set(state.veiculos.map(v=>v.placa))];
   const placaOpts=placas.map(p=>`<option>${p}</option>`).join('');
   return `
-    <div class="topbar"><div><div class="page-title">📂 Histórico do Veículo</div><div class="page-sub">Filtro por placa</div></div></div>
+    <div class="topbar"><div><div class="page-title">📂 Histórico</div><div class="page-sub">Todas as OS — filtre por período e placa</div></div></div>
     <div class="content">
       <div class="card" style="margin-bottom:16px">
-        <div style="display:flex;align-items:flex-end;gap:12px">
-          <div style="flex:1"><label style="display:block;font-size:12px;font-weight:600;color:var(--header);margin-bottom:5px">🔍 Placa do Veículo</label>
-            <select id="hist-placa" onchange="renderHistoricoResult()" style="max-width:240px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
-              <option value="">Selecione uma placa...</option>${placaOpts}
+        <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div><label style="display:block;font-size:12px;font-weight:600;color:var(--header);margin-bottom:5px">🔍 Placa</label>
+            <select id="hist-placa" onchange="renderHistoricoResult()" style="min-width:160px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+              <option value="">Todas as placas</option>${placaOpts}
             </select>
           </div>
+          <div><label style="display:block;font-size:12px;font-weight:600;color:var(--header);margin-bottom:5px">De</label>
+            <input type="date" id="hist-data-ini" onchange="renderHistoricoResult()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px"/>
+          </div>
+          <div><label style="display:block;font-size:12px;font-weight:600;color:var(--header);margin-bottom:5px">Até</label>
+            <input type="date" id="hist-data-fim" onchange="renderHistoricoResult()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px"/>
+          </div>
+          <button class="btn btn-outline" onclick="limparFiltrosHistorico()">Limpar Filtros</button>
+          <div style="flex:1"></div>
+          <button class="btn btn-primary" onclick="exportHistoricoExcel()">⬇️ Baixar Excel</button>
         </div>
       </div>
       <div id="hist-result"></div>
     </div>`;
 }
-function renderHistoricoResult(){
-  const placa=document.getElementById('hist-placa').value;
-  const div=document.getElementById('hist-result');
-  if(!placa){div.innerHTML='';return}
-  const v=getVeiculo(placa);
-  const osPlaca=state.os.filter(o=>o.placa===placa);
+function limparFiltrosHistorico(){
+  document.getElementById('hist-placa').value='';
+  document.getElementById('hist-data-ini').value='';
+  document.getElementById('hist-data-fim').value='';
+  renderHistoricoResult();
+}
+function getHistoricoFiltrado(){
+  const placa=document.getElementById('hist-placa')?.value||'';
+  const dataIni=document.getElementById('hist-data-ini')?.value||'';
+  const dataFim=document.getElementById('hist-data-fim')?.value||'';
   const geradas=getManutencoesGeradas();
-  const manuts=geradas.filter(m=>m.placa===placa);
-  const total=manuts.reduce((a,m)=>a+(+m.vlrPecas||0)+(+m.vlrMO||0),0);
-  const ultima=manuts[manuts.length-1];
-  const rows=osPlaca.map(o=>{
-    const m=geradas.find(x=>x.os===o.num);
-    return `<tr>
+  const osFiltradas=state.os
+    .filter(o=>{
+      if(placa&&o.placa!==placa)return false;
+      if(dataIni&&o.data<dataIni)return false;
+      if(dataFim&&o.data>dataFim)return false;
+      return true;
+    })
+    .slice()
+    .sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  return osFiltradas.map(o=>({o, m:geradas.find(x=>x.os===o.num)}));
+}
+function renderHistoricoResult(){
+  const div=document.getElementById('hist-result');
+  if(!div)return;
+  const itens=getHistoricoFiltrado();
+  const totalGasto=itens.reduce((a,{m})=>a+(m?m.total:0),0);
+  const veiculosDistintos=new Set(itens.map(({o})=>o.placa)).size;
+  const rows=itens.map(({o,m})=>`<tr>
       <td><strong>${o.num}</strong></td>
       <td>${fmtDate(o.data)}</td>
+      <td><strong>${o.placa}</strong></td>
+      <td>${o.modelo||'—'}</td>
       <td><span class="badge ${getStatusBadge(o.status)}">${o.status}</span></td>
       <td>${m?m.oficina:'—'}</td>
       <td>${o.solucao||'—'}</td>
-      <td>${m?fmt((+m.vlrPecas||0)+(+m.vlrMO||0)):'—'}</td>
+      <td>${m?fmt(m.total):'—'}</td>
       <td>${m?m.nf:'—'}</td>
       <td>${o.problema}</td>
-    </tr>`;
-  }).join('');
+    </tr>`).join('');
   div.innerHTML=`
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
-        <div><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Veículo</div><div style="font-weight:700;font-size:16px">${v.modelo||'—'}</div></div>
-        <div><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Motorista</div><div style="font-weight:600">${v.motorista||'—'}</div></div>
-        <div><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Total OS</div><div style="font-weight:700;color:var(--blue)">${osPlaca.length}</div></div>
-        <div><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Total Gasto</div><div style="font-weight:700;color:var(--green)">${fmt(total)}</div></div>
-        <div><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Última Oficina</div><div style="font-weight:600">${ultima?ultima.oficina:'—'}</div></div>
+        <div><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Total OS</div><div style="font-weight:700;font-size:16px;color:var(--blue)">${itens.length}</div></div>
+        <div><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Veículos</div><div style="font-weight:600">${veiculosDistintos}</div></div>
+        <div><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Total Gasto</div><div style="font-weight:700;color:var(--green)">${fmt(totalGasto)}</div></div>
       </div>
     </div>
     <div class="card">
       <div class="table-wrap">
-        <table><thead><tr><th>OS #</th><th>Data</th><th>Status</th><th>Oficina</th><th>Tipo</th><th>Total</th><th>NF</th><th>Problema</th></tr></thead>
-        <tbody>${rows||'<tr><td colspan="8" style="text-align:center;padding:24px;color:#64748B">Nenhuma OS encontrada para esta placa</td></tr>'}</tbody></table>
+        <table><thead><tr><th>OS #</th><th>Data</th><th>Placa</th><th>Veículo</th><th>Status</th><th>Oficina</th><th>Serviço</th><th>Total</th><th>NF</th><th>Problema</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="10" style="text-align:center;padding:24px;color:#64748B">Nenhuma OS encontrada para os filtros aplicados</td></tr>'}</tbody></table>
       </div>
     </div>`;
+}
+function exportHistoricoExcel(){
+  const itens=getHistoricoFiltrado();
+  if(!itens.length){alert('Nenhuma OS para exportar com os filtros aplicados.');return}
+  const data=itens.map(({o,m})=>({
+    'OS':o.num,
+    'Data':fmtDate(o.data),
+    'Placa':o.placa,
+    'Veículo':o.modelo||'',
+    'Motorista':o.motorista||'',
+    'KM':o.km||'',
+    'Status':o.status,
+    'Oficina':m?m.oficina:'',
+    'Problema':o.problema||'',
+    'Serviço':o.solucao||'',
+    'Valor Peças':m?m.vlrPecas:'',
+    'Valor MO':m?m.vlrMO:'',
+    'Total':m?m.total:'',
+    'NF':m?m.nf:''
+  }));
+  const ws=XLSX.utils.json_to_sheet(data);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Histórico');
+  const placa=document.getElementById('hist-placa')?.value||'';
+  const dataIni=document.getElementById('hist-data-ini')?.value||'';
+  const dataFim=document.getElementById('hist-data-fim')?.value||'';
+  const partes=['historico', placa||'todas-placas'];
+  if(dataIni||dataFim) partes.push(`${dataIni||'inicio'}_a_${dataFim||'hoje'}`);
+  XLSX.writeFile(wb, partes.join('_')+'.xlsx');
 }
 
 // ─── OFICINAS ────────────────────────────────────────────────────────────────
@@ -1565,7 +1618,7 @@ function renderDashboard(){
     </div>`;
   }).join(''):`<div class="empty-state"><div class="empty-icon">🏎</div><p>Nenhum dado disponível</p></div>`;
   const statusList=[
-    {s:'Aberta',c:'badge-gray'},{s:'Diagnóstico/Oficina',c:'badge-red'},{s:'Cotação',c:'badge-purple'},
+    {s:'Aberta',c:'badge-gray'},{s:'Diagnóstico / Oficina',c:'badge-red'},{s:'Cotação',c:'badge-purple'},
     {s:'Aguardando Aprovação',c:'badge-amber'},{s:'Aprovada',c:'badge-blue'},{s:'Execução',c:'badge-blue'},
     {s:'Concluída',c:'badge-green'},{s:'Cancelada',c:'badge-gray'}
   ];
@@ -1581,7 +1634,7 @@ function renderDashboard(){
         <div class="card-title" style="margin-bottom:12px">▸ Indicadores Operacionais</div>
         <div class="kpi-grid">
           <div class="kpi"><div class="kpi-label">OS Abertas</div><div class="kpi-val" style="color:var(--gray)">${statusCounts['Aberta']||0}</div></div>
-          <div class="kpi"><div class="kpi-label">Diagnóstico/Oficina</div><div class="kpi-val" style="color:var(--red)">${statusCounts['Diagnóstico/Oficina']||0}</div></div>
+          <div class="kpi"><div class="kpi-label">Diagnóstico / Oficina</div><div class="kpi-val" style="color:var(--red)">${statusCounts['Diagnóstico / Oficina']||0}</div></div>
           <div class="kpi"><div class="kpi-label">Em Execução</div><div class="kpi-val" style="color:var(--blue)">${statusCounts['Execução']||0}</div></div>
           <div class="kpi"><div class="kpi-label">Concluídas</div><div class="kpi-val" style="color:var(--green)">${statusCounts['Concluída']||0}</div></div>
           <div class="kpi"><div class="kpi-label">Canceladas</div><div class="kpi-val" style="color:var(--gray)">${statusCounts['Cancelada']||0}</div></div>
@@ -1630,6 +1683,7 @@ function render(){
   document.getElementById('main-content').innerHTML=fn();
   if(state.page==='aprovacoes') renderAprovacoesFiltro();
   if(state.page==='manutencoes') renderManutencoesFiltro();
+  if(state.page==='historico') renderHistoricoResult();
   document.querySelectorAll('.nav-item').forEach(el=>{
     el.classList.toggle('active',el.dataset.page===state.page);
   });
