@@ -1,8 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {
   getFirestore, collection, doc,
-  getDocs, setDoc, deleteDoc, onSnapshot,
-  writeBatch, query, orderBy, getDoc
+  getDocs, setDoc, deleteDoc, onSnapshot, getDoc
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ─── FIREBASE CONFIG ─────────────────────────────────────────────────────────
@@ -44,7 +43,7 @@ window.state = {
   oficinas: [],
   fornecedores: [],
   anselmoUnlocked: false,
-  osCounter: 6,
+  osCounter: 1,
   _loaded: false
 };
 
@@ -101,74 +100,21 @@ async function fbGetMeta(key, defaultVal) {
   return defaultVal;
 }
 
-// ─── SEED DATA (only if empty) ────────────────────────────────────────────────
-const SEED_VEICULOS = [
-  {id:1,placa:'ABC-1234',modelo:'Fiat Strada 1.3',motorista:'Carlos Silva',ano:2022,cor:'Branco',obs:''},
-  {id:2,placa:'DEF-5678',modelo:'VW Gol 1.0',motorista:'Maria Oliveira',ano:2021,cor:'Prata',obs:''},
-  {id:3,placa:'GHI-9012',modelo:'Hyundai HB20 1.0',motorista:'João Santos',ano:2023,cor:'Preto',obs:''},
-  {id:4,placa:'JKL-3456',modelo:'Renault Kwid 1.0',motorista:'Ana Lima',ano:2022,cor:'Vermelho',obs:''},
-  {id:5,placa:'MNO-7890',modelo:'Chevrolet S10 2.8',motorista:'Pedro Rocha',ano:2020,cor:'Cinza',obs:''},
-];
-const SEED_OS = [
-  {id:1,num:'OS-001',data:'2025-06-01',placa:'ABC-1234',modelo:'Fiat Strada 1.3',motorista:'Carlos Silva',km:45200,problema:'Freio traseiro com ruído intenso',status:'Concluída',prioridade:'Alta'},
-  {id:2,num:'OS-002',data:'2025-06-05',placa:'DEF-5678',modelo:'VW Gol 1.0',motorista:'Maria Oliveira',km:32100,problema:'Troca de óleo e filtro',status:'Execução',prioridade:'Normal'},
-  {id:3,num:'OS-003',data:'2025-06-10',placa:'GHI-9012',modelo:'Hyundai HB20 1.0',motorista:'João Santos',km:78500,problema:'Ar condicionado não funciona',status:'Aguardando Aprovação',prioridade:'Alta'},
-  {id:4,num:'OS-004',data:'2025-06-15',placa:'JKL-3456',modelo:'Renault Kwid 1.0',motorista:'Ana Lima',km:15300,problema:'Revisão preventiva 15.000 km',status:'Cotação',prioridade:'Normal'},
-  {id:5,num:'OS-005',data:'2025-06-18',placa:'MNO-7890',modelo:'Chevrolet S10 2.8',motorista:'Pedro Rocha',km:52000,problema:'Pneu traseiro direito furado',status:'Diagnóstico/Oficina',prioridade:'Urgente'},
-];
-const SEED_COTACOES = [
-  {id:1,os:'OS-003',fornecedor:'Oficina Central Fortaleza',desconto:0,precos:{},pgto:'Boleto 30d',obs:'',escolhido:true},
-  {id:2,os:'OS-003',fornecedor:'Auto Peças Norte',desconto:0,precos:{},pgto:'À vista',obs:'Sem garantia',escolhido:false},
-];
-const SEED_APROVACOES = [
-  {id:1,os:'OS-001',valor:45,aprovador:'Júlio',status:'Aprovada',data:'2025-06-02',autorizado:'Júlio',obs:''},
-  {id:2,os:'OS-002',valor:180,aprovador:'Anselmo',status:'Aprovada',data:'2025-06-06',autorizado:'Anselmo',obs:''},
-  {id:3,os:'OS-003',valor:850,aprovador:'Anselmo',status:'Aguardando Aprovação',data:'',autorizado:'',obs:'Aguardando retorno'},
-  {id:4,os:'OS-004',valor:320,aprovador:'Anselmo',status:'Aguardando Aprovação',data:'',autorizado:'',obs:''},
-];
-const SEED_MANUTENCOES = [
-  {id:1,os:'OS-001',data:'2025-06-03',oficina:'Oficina Central Fortaleza',tipo:'Corretiva',desc:'Troca pastilha freio traseiro',vlrPecas:38,vlrMO:25,nf:'NF 00123',garantia:'2025-12-03'},
-  {id:2,os:'OS-002',data:'2025-06-07',oficina:'Mecânica Express',tipo:'Preventiva',desc:'Troca óleo 10W40 e filtro',vlrPecas:85,vlrMO:95,nf:'NF 00456',garantia:''},
-];
-const SEED_PECAS = [
-  {id:1,os:'OS-001',peca:'Pastilha de Freio Traseira',marca:'Bosch',qtde:1,fornecedor:'Oficina Central Fortaleza',vlrUnit:38,obs:'Par'},
-  {id:2,os:'OS-002',peca:'Óleo Motor 10W40 (1L)',marca:'Castrol',qtde:4,fornecedor:'Mecânica Express',vlrUnit:25,obs:''},
-  {id:3,os:'OS-002',peca:'Filtro de Óleo',marca:'Mann',qtde:1,fornecedor:'Mecânica Express',vlrUnit:35,obs:''},
-];
-const SEED_OFICINAS = [
-  {id:1,razao:'Oficina Central Fortaleza Ltda.',fantasia:'Oficina Central Fortaleza',cnpj:'12.345.678/0001-99',tel:'(85) 3123-4567',endereco:'Rua das Flores, 100',cidade:'Fortaleza - CE',contato:'José Mecânico'},
-  {id:2,razao:'Mecânica Express Eireli',fantasia:'Mecânica Express',cnpj:'98.765.432/0001-11',tel:'(85) 99876-5432',endereco:'Av. Principal, 500',cidade:'Fortaleza - CE',contato:'Carlos'},
-];
-
-async function seedIfEmpty(colName, seedData) {
-  const existing = await getDocs(collection(db, colName));
-  if(existing.empty) {
-    const batch = writeBatch(db);
-    seedData.forEach(item => {
-      const d = { ...item };
-      batch.set(doc(db, colName, String(item.id)), d);
-    });
-    await batch.commit();
-    return seedData;
-  }
-  return existing.docs.map(d => ({ ...d.data() }));
-}
-
 // ─── LOAD ALL DATA ────────────────────────────────────────────────────────────
 async function loadAllData() {
   try {
     fbStatus('Carregando dados...', 'sync');
 
     const [veiculos, os, cotacoes, aprovacoes, manutencoes, pecas, oficinas, fornecedores, osCounter] = await Promise.all([
-      seedIfEmpty(COLS.veiculos, SEED_VEICULOS),
-      seedIfEmpty(COLS.os, SEED_OS),
-      seedIfEmpty(COLS.cotacoes, SEED_COTACOES),
-      seedIfEmpty(COLS.aprovacoes, SEED_APROVACOES),
-      seedIfEmpty(COLS.manutencoes, SEED_MANUTENCOES),
-      seedIfEmpty(COLS.pecas, SEED_PECAS),
-      seedIfEmpty(COLS.oficinas, SEED_OFICINAS),
+      fbLoad(COLS.veiculos),
+      fbLoad(COLS.os),
+      fbLoad(COLS.cotacoes),
+      fbLoad(COLS.aprovacoes),
+      fbLoad(COLS.manutencoes),
+      fbLoad(COLS.pecas),
+      fbLoad(COLS.oficinas),
       fbLoad(COLS.fornecedores),
-      fbGetMeta('osCounter', 6)
+      fbGetMeta('osCounter', 1)
     ]);
 
     // Normalize numeric IDs

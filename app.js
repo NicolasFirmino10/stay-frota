@@ -24,8 +24,76 @@ function getPrioridadeBadge(p){
 }
 function getAprovadorBadge(a){return a==='Anselmo'?'badge-purple':'badge-blue'}
 
+// ─── MONEY INPUT (máscara R$) ─────────────────────────────────────────────────
+const moneyIn = n => (n!=null && n!=='') ? fmt(Number(n)) : '';
+function parseMoney(v){
+  if(v==null) return 0;
+  const s=String(v).replace(/[R$\s.]/g,'').replace(',','.');
+  return +s||0;
+}
+function formatMoneyInput(el){
+  let digits=el.value.replace(/\D/g,'').replace(/^0+(?=\d)/,'');
+  if(!digits){el.value='';return}
+  const num=(+digits)/100;
+  el.value='R$ '+num.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const len=el.value.length;
+  el.setSelectionRange(len,len);
+}
+
+// ─── GLOBAL INPUT BEHAVIOR: máscara de moeda + maiúsculas em campos de texto ──
+document.addEventListener('input', function(e){
+  const t=e.target;
+  if(!t||!t.tagName) return;
+  if(t.closest && t.closest('#modal-root')) window._modalDirty=true;
+  if(t.closest && t.closest('.draft-form')) window._pageDirty=true;
+  if(t.classList && t.classList.contains('money-input')){
+    formatMoneyInput(t);
+    return;
+  }
+  const tag=t.tagName.toLowerCase();
+  if(tag==='textarea' || (tag==='input' && t.type==='text')){
+    const start=t.selectionStart, end=t.selectionEnd;
+    const up=t.value.toUpperCase();
+    if(t.value!==up){
+      t.value=up;
+      if(start!=null) t.setSelectionRange(start,end);
+    }
+  }
+});
+// Cobre casos que às vezes não disparam 'input' (checkbox, select, file)
+document.addEventListener('change', function(e){
+  const t=e.target;
+  if(!t||!t.closest) return;
+  if(t.closest('#modal-root')) window._modalDirty=true;
+  if(t.closest('.draft-form')) window._pageDirty=true;
+});
+
+// ─── GLOBAL: Enter troca para o próximo campo ─────────────────────────────────
+document.addEventListener('keydown', function(e){
+  if(e.key!=='Enter') return;
+  const t=e.target;
+  if(!t||!t.tagName) return;
+  const tag=t.tagName.toLowerCase();
+  if(!['input','select','textarea'].includes(tag)) return;
+  const container=t.closest('.modal')||t.closest('.content')||document.body;
+  const focusable=Array.from(container.querySelectorAll('input,select,textarea'))
+    .filter(el=>!el.disabled && el.type!=='hidden' && !el.readOnly && el.offsetParent!==null);
+  const idx=focusable.indexOf(t);
+  if(idx===-1) return;
+  e.preventDefault();
+  const next=focusable[idx+1];
+  if(next){ next.focus(); if(next.select) next.select(); }
+  else { t.blur(); } // último campo da seção: sai do foco para disparar o salvamento (onchange)
+});
+
 // ─── NAVIGATION ──────────────────────────────────────────────────────────────
+window._pageDirty=false;
 function go(page){
+  if(window._pageDirty){
+    const ok=confirm('Você preencheu informações que ainda não foram salvas nesta seção. Deseja realmente sair sem salvar?');
+    if(!ok) return;
+    window._pageDirty=false;
+  }
   state.page=page;
   document.querySelectorAll('.nav-item').forEach(el=>{
     el.classList.toggle('active', el.dataset.page===page);
@@ -34,8 +102,30 @@ function go(page){
 }
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
-function openModal(html){document.getElementById('modal-root').innerHTML=html}
-function closeModal(){document.getElementById('modal-root').innerHTML=''}
+window._modalDirty=false;
+function openModal(html){
+  document.getElementById('modal-root').innerHTML=html;
+  window._modalDirty=false;
+}
+function closeModal(){
+  document.getElementById('modal-root').innerHTML='';
+  window._modalDirty=false;
+}
+// Usado pelo X, Cancelar e clique fora do modal: avisa se há alterações não salvas
+function confirmCloseModal(){
+  if(window._modalDirty){
+    const ok=confirm('Você preencheu informações que ainda não foram salvas. Deseja realmente sair sem salvar?');
+    if(!ok) return;
+  }
+  closeModal();
+}
+// Avisa também ao tentar sair da página/aba com um formulário aberto e não salvo
+window.addEventListener('beforeunload', function(e){
+  if(window._modalDirty || window._pageDirty){
+    e.preventDefault();
+    e.returnValue='';
+  }
+});
 
 // ─── LOCK ────────────────────────────────────────────────────────────────────
 function showLock(cb){
@@ -135,8 +225,10 @@ function renderHome(){
   const statusManut=['Diagnóstico / Oficina','Cotação','Aguardando Aprovação','Aprovada','Execução'];
   const veicsManut=new Set(os.filter(o=>statusManut.includes(o.status)).map(o=>o.placa)).size;
   const diag=new Set(os.filter(o=>o.status==='Diagnóstico / Oficina').map(o=>o.placa)).size;
-  const aguard=new Set(os.filter(o=>o.status==='Aguardando Aprovação').map(o=>o.placa)).size;
+  const osAguardApro=getOSNumsAguardandoAprovacao();
+  const aguard=new Set(osAguardApro.map(n=>os.find(o=>o.num===n)?.placa).filter(Boolean)).size;
   const exec=new Set(os.filter(o=>o.status==='Execução').map(o=>o.placa)).size;
+  const cotPendente=getOSNumsPendentesCotacao().length;
   const pctDiag=veicsManut?Math.round((diag/veicsManut)*100):0;
   const pctAguard=veicsManut?Math.round((aguard/veicsManut)*100):0;
   const pctExec=veicsManut?Math.round((exec/veicsManut)*100):0;
@@ -155,11 +247,16 @@ function renderHome(){
             <div style="font-size:11px;color:var(--gray);margin-top:2px">veículos ativos</div>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
           <div style="background:var(--red-light);border:1px solid #FECACA;border-radius:10px;padding:14px;text-align:center">
             <div style="font-size:10px;color:var(--red);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Diagnóstico / Oficina</div>
             <div style="font-size:24px;font-weight:700;color:var(--red);margin:4px 0">${diag}</div>
             <div style="font-size:11px;color:var(--gray)">${pctDiag}% da manutenção</div>
+          </div>
+          <div style="background:var(--purple-light);border:1px solid #DDD6FE;border-radius:10px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:var(--purple);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Cotação Pendente</div>
+            <div style="font-size:24px;font-weight:700;color:var(--purple);margin:4px 0">${cotPendente}</div>
+            <div style="font-size:11px;color:var(--gray)">OS aguardando cotação</div>
           </div>
           <div style="background:var(--amber-light);border:1px solid #FCD34D;border-radius:10px;padding:14px;text-align:center">
             <div style="font-size:10px;color:var(--amber);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Aguard. Aprovação</div>
@@ -211,6 +308,8 @@ function renderHome(){
         <div class="home-nav-grid">
           ${[
             {p:'os',i:'📋',l:'Ordens de Serviço'},
+            {p:'diagnostico',i:'🩺',l:'Diagnóstico Oficina'},
+            {p:'pecasOS',i:'🔩',l:'Peças'},
             {p:'cotacoes',i:'💰',l:'Cotações'},
             {p:'aprovacoes',i:'✅',l:'Aprovações'},
             {p:'manutencoes',i:'🔧',l:'Manutenções'},
@@ -225,95 +324,8 @@ function renderHome(){
 }
 
 // ─── ORDENS DE SERVIÇO ───────────────────────────────────────────────────────
-window._osPecasTmp=[];
-function renderOSPecasRows(){
-  return window._osPecasTmp.map((p,i)=>`
-    <div class="form-row" style="align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px">
-      ${p.foto?`<img src="${p.foto}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex:none"/>`:'<div style="width:44px;height:44px;border-radius:6px;background:var(--gray-light);flex:none;display:flex;align-items:center;justify-content:center;font-size:18px">🔩</div>'}
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:13px">${p.qtde}x ${p.desc}</div>
-        <div style="font-size:12px;color:var(--gray)">${[p.marca&&('Marca: '+p.marca),p.ref&&('Ref.: '+p.ref)].filter(Boolean).join(' · ')||'—'}</div>
-        ${p.obs?`<div style="font-size:12px;color:var(--gray)">Obs.: ${p.obs}</div>`:''}
-      </div>
-      <button type="button" class="btn btn-sm btn-danger" onclick="removeOSPeca(${i})">🗑</button>
-    </div>`).join('') || '<div class="empty-state" style="padding:12px;font-size:12px">Nenhuma peça adicionada</div>';
-}
-function refreshOSPecasList(){
-  const el=document.getElementById('os-pecas-list');
-  if(el) el.innerHTML=renderOSPecasRows();
-}
-function addOSPeca(){
-  const qtde=+document.getElementById('osp-qtde').value||1;
-  const desc=document.getElementById('osp-desc').value.trim();
-  const marca=document.getElementById('osp-marca').value.trim();
-  const ref=document.getElementById('osp-ref').value.trim();
-  const obs=document.getElementById('osp-obs').value.trim();
-  const fileInput=document.getElementById('osp-foto');
-  const file=fileInput.files[0];
-  if(!desc){alert('Informe a descrição da peça.');return}
-  const push=(foto)=>{
-    const id=Date.now()+'_'+Math.random().toString(36).slice(2,7);
-    window._osPecasTmp.push({id,qtde,desc,marca,ref,foto:foto||'',obs});
-    ['osp-qtde','osp-desc','osp-marca','osp-ref','osp-obs'].forEach(id=>document.getElementById(id).value='');
-    fileInput.value='';
-    refreshOSPecasList();
-  };
-  if(file){
-    const reader=new FileReader();
-    reader.onload=()=>push(reader.result);
-    reader.readAsDataURL(file);
-  } else push('');
-}
-function removeOSPeca(i){
-  window._osPecasTmp.splice(i,1);
-  refreshOSPecasList();
-}
-function osPecasSectionHTML(hidden){
-  return `
-    <div id="os-pecas-wrap" style="display:${hidden?'none':'block'}">
-      <hr style="border:none;border-top:1px solid var(--border);margin:4px 0 12px">
-      <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Peças</div>
-      <div class="form-row">
-        <div class="form-group" style="max-width:100px"><label>Qtde.</label><input type="number" id="osp-qtde" min="1" value="1"/></div>
-        <div class="form-group"><label>Descrição</label><input id="osp-desc"/></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Marca</label><input id="osp-marca"/></div>
-        <div class="form-group"><label>Referência</label><input id="osp-ref"/></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Foto da Peça</label><input type="file" accept="image/*" id="osp-foto"/></div>
-        <div class="form-group"><label>Observação</label><input id="osp-obs"/></div>
-      </div>
-      <div class="modal-actions" style="justify-content:flex-start;margin:0 0 12px">
-        <button type="button" class="btn btn-outline btn-sm" onclick="addOSPeca()">+ Adicionar Peça</button>
-      </div>
-      <div id="os-pecas-list">${renderOSPecasRows()}</div>
-      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
-    </div>`;
-}
-function osOficinaMoHTML(o){
-  const suf=o?'-edit':'';
-  const ofList=state.oficinas.map(x=>`<option>${x.fantasia}</option>`).join('');
-  return `
-    <hr style="border:none;border-top:1px solid var(--border);margin:4px 0 12px">
-    <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Oficina / Mão de Obra</div>
-    <div class="form-row">
-      <div class="form-group"><label>Oficina</label><input id="os-oficina${suf}" list="os-of-list${suf}" placeholder="Nome da oficina" value="${o?(o.oficina||''):''}"/><datalist id="os-of-list${suf}">${ofList}</datalist></div>
-      <div class="form-group"><label>Mão de Obra (R$)</label><input type="number" id="os-mo${suf}" step="0.01" value="${o&&o.mo!=null?o.mo:''}"/></div>
-    </div>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0 4px;cursor:pointer">
-      <input type="checkbox" id="os-dispensa${suf}" ${o&&o.dispensaPeca?'checked':''} onchange="toggleOSDispensaPeca(${o?'true':'false'})"/>
-      Dispensar necessidade de peça
-    </label>`;
-}
-function toggleOSDispensaPeca(isEdit){
-  const cb=document.getElementById(isEdit?'os-dispensa-edit':'os-dispensa');
-  const wrap=document.getElementById('os-pecas-wrap');
-  if(wrap) wrap.style.display=cb.checked?'none':'block';
-}
 function renderOS(){
-  const rows=state.os.map(o=>`
+  const rows=state.os.filter(o=>o.status!=='Concluída').map(o=>`
     <tr>
       <td><strong>${o.num}</strong></td>
       <td>${fmtDate(o.data)}</td>
@@ -324,7 +336,9 @@ function renderOS(){
       <td style="max-width:200px">${o.problema}</td>
       <td><span class="badge ${getStatusBadge(o.status)}">${o.status}</span></td>
       <td><div class="action-btns">
-        <button class="btn btn-sm btn-outline" onclick="editOS(${o.id})">✏️</button>
+        <button class="btn btn-sm btn-outline" onclick="editOS(${o.id})" title="Dados Gerais">✏️</button>
+        ${(o.status==='Aberta'||o.status==='Diagnóstico / Oficina')?`<button class="btn btn-sm btn-outline" onclick="window._diagOpenOS.add('${o.num}');go('diagnostico')" title="Diagnóstico Oficina">🩺</button>`:''}
+        ${o.status!=='Cancelada'?`<button class="btn btn-sm btn-outline" onclick="window._pecasOpenOS.add('${o.num}');go('pecasOS')" title="Peças">🔩</button>`:''}
         <button class="btn btn-sm btn-danger" onclick="delOS(${o.id})">🗑</button>
       </div></td>
     </tr>`).join('');
@@ -332,20 +346,20 @@ function renderOS(){
     <div class="topbar"><div><div class="page-title">📋 Ordens de Serviço</div><div class="page-sub">Responsável: Júlio</div></div>
       <button class="btn btn-primary" onclick="novaOS()">+ Nova OS</button></div>
     <div class="content">
+      <div class="alert alert-blue">💡 Após criar a OS, use 🩺 para preencher o Laudo de Oficina e 🔩 para cadastrar as peças — ambos têm seções próprias no menu. OS concluídas saem desta lista e ficam disponíveis no Histórico.</div>
       <div class="card">
         <div class="table-wrap">
           <table><thead><tr><th>OS #</th><th>Data</th><th>Placa</th><th>Veículo</th><th>Motorista</th><th>KM</th><th>Defeito</th><th>Status</th><th>Ações</th></tr></thead>
-          <tbody>${rows||'<tr><td colspan="9" class="empty-state">Nenhuma OS cadastrada</td></tr>'}</tbody></table>
+          <tbody>${rows||'<tr><td colspan="9" class="empty-state">Nenhuma OS em aberto</td></tr>'}</tbody></table>
         </div>
       </div>
     </div>`;
 }
 function novaOS(){
-  window._osPecasTmp=[];
   const veics=state.veiculos.map(v=>`<option value="${v.placa}">${v.placa} – ${v.modelo}</option>`).join('');
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">📋 Nova Ordem de Serviço</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">📋 Nova Ordem de Serviço</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <div class="form-row">
         <div class="form-group"><label>Placa *</label><select id="os-placa" onchange="autoFillOS()"><option value="">Selecione...</option>${veics}</select></div>
         <div class="form-group"><label>Data *</label><input type="date" id="os-data" value="${today()}"/></div>
@@ -357,13 +371,9 @@ function novaOS(){
       <div class="form-row">
         <div class="form-group"><label>KM Atual *</label><input type="number" id="os-km"/></div>
       </div>
-      <div class="form-group"><label>Defeito Relatado pelo técnico *</label><textarea id="os-problema" rows="3" oninput="this.value=this.value.toUpperCase()"></textarea></div>
-      <div class="form-group"><label>Serviço a executar</label><textarea id="os-solucao" rows="3"></textarea></div>
-      <div class="form-group"><label>Status</label><select id="os-status"><option>Aberta</option><option>Diagnóstico / Oficina</option><option>Cotação</option><option>Aguardando Aprovação</option><option>Execução</option><option>Concluída</option><option>Cancelada</option></select></div>
-      ${osOficinaMoHTML()}
-      ${osPecasSectionHTML(false)}
+      <div class="form-group"><label>Defeito Relatado pelo motorista *</label><textarea id="os-problema" rows="3"></textarea></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveOS()">Salvar OS</button>
       </div>
     </div></div>`);
@@ -391,13 +401,14 @@ async function saveOS(){
     motorista:v.motorista||document.getElementById('os-motorista').value,
     km:+document.getElementById('os-km').value||0,
     problema:document.getElementById('os-problema').value.toUpperCase(),
-    solucao:document.getElementById('os-solucao').value,
-    status:document.getElementById('os-status').value,
+    defeitoMecanico:'',
+    solucao:'',
+    status:'Aberta',
     prioridade:'Normal',
-    oficina:document.getElementById('os-oficina').value,
-    mo:+document.getElementById('os-mo').value||0,
-    dispensaPeca:document.getElementById('os-dispensa').checked,
-    pecas:[...window._osPecasTmp]
+    oficina:'',
+    mo:0,
+    dispensaPeca:false,
+    pecas:[]
   };
   if(!obj.placa||!obj.problema){alert('Preencha Placa e Defeito.');return}
 
@@ -407,11 +418,10 @@ async function saveOS(){
 function editOS(id){
   const o=state.os.find(x=>x.id===id);
   if(!o)return;
-  window._osPecasTmp=(o.pecas||[]).map(p=>({...p, id:p.id||(Date.now()+'_'+Math.random().toString(36).slice(2,7))}));
   const veics=state.veiculos.map(v=>`<option value="${v.placa}"${v.placa===o.placa?' selected':''}>${v.placa} – ${v.modelo}</option>`).join('');
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">✏️ Editar OS ${o.num}</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">✏️ Editar OS ${o.num}</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <input type="hidden" id="edit-os-id" value="${id}"/>
       <div class="form-row">
         <div class="form-group"><label>Placa</label><select id="os-placa-edit" onchange="autoFillOS(true)"><option value="">Selecione...</option>${veics}</select></div>
@@ -421,14 +431,10 @@ function editOS(id){
         <div class="form-group"><label>Veículo</label><input id="os-modelo-edit" value="${o.modelo}" readonly/></div>
         <div class="form-group"><label>Motorista</label><input id="os-motorista-edit" value="${o.motorista}" readonly/></div>
       </div>
-      <div class="form-group"><label>KM</label><input type="number" id="os-km-edit" value="${o.km}"/></div>
-      <div class="form-group"><label>Defeito Relatado</label><textarea id="os-problema-edit" rows="3" oninput="this.value=this.value.toUpperCase()">${o.problema}</textarea></div>
-      <div class="form-group"><label>Serviço a executar</label><textarea id="os-solucao-edit" rows="3">${o.solucao||''}</textarea></div>
-      <div class="form-group"><label>Status</label><select id="os-status-edit">${['Aberta','Diagnóstico / Oficina','Cotação','Aguardando Aprovação','Execução','Concluída','Cancelada'].map(s=>`<option${s===o.status?' selected':''}>${s}</option>`).join('')}</select></div>
-      ${osOficinaMoHTML(o)}
-      ${osPecasSectionHTML(!!o.dispensaPeca)}
+      <div class="form-group"><label>KM Atual</label><input type="number" id="os-km-edit" value="${o.km}"/></div>
+      <div class="form-group"><label>Defeito Relatado pelo motorista</label><textarea id="os-problema-edit" rows="3">${o.problema}</textarea></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="updateOS()">Atualizar</button>
       </div>
     </div></div>`);
@@ -444,14 +450,7 @@ async function updateOS(){
     motorista:v.motorista||document.getElementById('os-motorista-edit').value,
     data:document.getElementById('os-data-edit').value,
     km:+document.getElementById('os-km-edit').value||0,
-    problema:document.getElementById('os-problema-edit').value.toUpperCase(),
-    solucao:document.getElementById('os-solucao-edit').value,
-    status:document.getElementById('os-status-edit').value,
-    prioridade:o.prioridade||'Normal',
-    oficina:document.getElementById('os-oficina-edit').value,
-    mo:+document.getElementById('os-mo-edit').value||0,
-    dispensaPeca:document.getElementById('os-dispensa-edit').checked,
-    pecas:[...window._osPecasTmp]
+    problema:document.getElementById('os-problema-edit').value.toUpperCase()
   };
   await window._fb.save(window._fb.cols.os, updated);
   closeModal();
@@ -459,6 +458,249 @@ async function updateOS(){
 async function delOS(id){
   if(!confirm('Remover esta OS?'))return;
   await window._fb.del(window._fb.cols.os, id);
+}
+
+// ─── VISUALIZAÇÃO (somente leitura) DE UMA OS — usado pelo Histórico ─────────
+function verDetalhesOS(id){
+  const o=state.os.find(x=>x.id===id);
+  if(!o)return;
+  const m=getManutencoesGeradas().find(x=>x.os===o.num);
+  const pecas=o.pecas||[];
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
+    <div class="modal">
+      <div class="modal-header"><div class="modal-title">📄 Detalhes da OS ${o.num}</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
+
+      <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Dados Gerais</div>
+      <div class="form-row">
+        <div><label>Placa</label><div style="font-size:14px;font-weight:600">${o.placa}</div></div>
+        <div><label>Data</label><div style="font-size:14px">${fmtDate(o.data)}</div></div>
+      </div>
+      <div class="form-row" style="margin-top:10px">
+        <div><label>Veículo</label><div style="font-size:14px">${o.modelo||'—'}</div></div>
+        <div><label>Motorista</label><div style="font-size:14px">${o.motorista||'—'}</div></div>
+      </div>
+      <div class="form-row" style="margin-top:10px">
+        <div><label>KM</label><div style="font-size:14px">${o.km!=null?Number(o.km).toLocaleString('pt-BR'):'—'}</div></div>
+        <div><label>Status</label><div><span class="badge ${getStatusBadge(o.status)}">${o.status}</span></div></div>
+      </div>
+      <div style="margin-top:10px"><label>Defeito Relatado pelo motorista</label><div style="font-size:14px">${o.problema||'—'}</div></div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+      <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Laudo de Oficina</div>
+      <div class="form-row">
+        <div><label>Oficina</label><div style="font-size:14px">${o.oficina||'—'}</div></div>
+        <div><label>Valor de Mão de Obra</label><div style="font-size:14px">${o.mo?fmt(o.mo):'—'}</div></div>
+      </div>
+      <div style="margin-top:10px"><label>Defeito Encontrado pelo mecânico</label><div style="font-size:14px">${o.defeitoMecanico||'—'}</div></div>
+      <div style="margin-top:10px"><label>Solução Proposta pelo mecânico</label><div style="font-size:14px">${o.solucao||'—'}</div></div>
+
+      ${m?`
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+      <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Cotação Aprovada / Manutenção</div>
+      <div class="form-row">
+        <div><label>Vlr. Peças</label><div style="font-size:14px">${fmt(m.vlrPecas)}</div></div>
+        <div><label>Vlr. Mão de Obra</label><div style="font-size:14px">${fmt(m.vlrMO)}</div></div>
+      </div>
+      <div class="form-row" style="margin-top:10px">
+        <div><label>Total</label><div style="font-size:14px;font-weight:600">${fmt(m.total)}</div></div>
+        <div><label>NF</label><div style="font-size:14px">${m.nf||'—'}</div></div>
+      </div>`:''}
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+      <div style="font-size:12px;font-weight:600;color:var(--gray);margin-bottom:8px;text-transform:uppercase">Peças (${pecas.length})</div>
+      ${o.dispensaPeca?'<div class="empty-state" style="padding:12px;font-size:12px">Peça dispensada para esta OS</div>':renderPecaRowsOS(o,true)}
+
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="confirmCloseModal()">Fechar</button>
+      </div>
+    </div></div>`);
+}
+
+// ─── DIAGNÓSTICO OFICINA (seção própria, integrada com Peças) ────────────────
+window._diagOpenOS=new Set();
+function toggleDiagOS(osNum){
+  const el=document.getElementById('diag-body-'+osNum);
+  if(!el)return;
+  const isOpen=el.style.display!=='none';
+  el.style.display=isOpen?'none':'block';
+  if(isOpen) window._diagOpenOS.delete(osNum); else window._diagOpenOS.add(osNum);
+  const icon=document.getElementById('diag-icon-'+osNum);
+  if(icon)icon.textContent=isOpen?'▶':'▼';
+}
+function laudoOficinaFormHTML(o){
+  const suf='-'+o.num;
+  const ofList=state.oficinas.map(x=>`<option>${x.fantasia}</option>`).join('');
+  return `
+    <div class="form-group"><label>Oficina</label><input id="lo-oficina${suf}" list="lo-of-list${suf}" placeholder="Nome da oficina" value="${o.oficina||''}"/><datalist id="lo-of-list${suf}">${ofList}</datalist></div>
+    <div class="form-group"><label>Defeito Encontrado pelo mecânico</label><textarea id="lo-defeito${suf}" rows="3">${o.defeitoMecanico||''}</textarea></div>
+    <div class="form-group"><label>Solução Proposta pelo mecânico</label><textarea id="lo-solucao${suf}" rows="3">${o.solucao||''}</textarea></div>
+    <div class="form-group"><label>Valor de Mão de Obra</label><input type="text" inputmode="decimal" class="money-input" id="lo-mo${suf}" placeholder="R$ 0,00" value="${moneyIn(o.mo)}"/></div>
+    <div class="modal-actions" style="justify-content:flex-start;border:none;padding-top:0;margin-top:0">
+      <button type="button" class="btn btn-primary btn-sm" onclick="saveLaudoOficina('${o.num}')">💾 Salvar Laudo</button>
+    </div>`;
+}
+async function saveLaudoOficina(osNum){
+  const o=state.os.find(x=>x.num===osNum);
+  if(!o)return;
+  const suf='-'+osNum;
+  const oficina=document.getElementById('lo-oficina'+suf).value;
+  const defeitoMecanico=document.getElementById('lo-defeito'+suf).value;
+  const solucao=document.getElementById('lo-solucao'+suf).value;
+  const mo=parseMoney(document.getElementById('lo-mo'+suf).value);
+  const laudoPreenchido=!!(oficina&&defeitoMecanico&&solucao);
+  let status=o.status;
+  if(status==='Aberta'&&laudoPreenchido) status='Diagnóstico / Oficina';
+  window._diagOpenOS.add(osNum);
+  window._pageDirty=false;
+  await window._fb.save(window._fb.cols.os, {...o, oficina, defeitoMecanico, solucao, mo, status});
+}
+function renderDiagnosticoOficina(){
+  const osList=state.os.filter(o=>o.status==='Aberta'||o.status==='Diagnóstico / Oficina')
+    .slice().sort((a,b)=>(a.status===b.status)?(a.num<b.num?-1:1):(a.status==='Aberta'?-1:1));
+  const cards=osList.map(o=>{
+    const isOpen=window._diagOpenOS.has(o.num);
+    const pecasCount=(o.pecas||[]).length;
+    return `<div class="card" style="margin-bottom:12px">
+      <div onclick="toggleDiagOS('${o.num}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="diag-icon-${o.num}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
+          <strong>${o.placa}</strong>
+          <span style="font-size:12px;color:var(--gray)">${o.modelo||''} · ${o.num} · ${fmtDate(o.data)}</span>
+          <span class="badge ${getStatusBadge(o.status)}">${o.status}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:12px;color:var(--gray)">🔩 ${o.dispensaPeca?'peça dispensada':pecasCount+' peça(s)'}</span>
+          <button type="button" class="btn btn-sm btn-outline" onclick="event.stopPropagation();window._pecasOpenOS.add('${o.num}');go('pecasOS')">Ver Peças</button>
+        </div>
+      </div>
+      <div id="diag-body-${o.num}" class="draft-form" style="display:${isOpen?'block':'none'};margin-top:14px">
+        <div class="alert alert-blue" style="margin-bottom:12px"><strong>Defeito Relatado pelo motorista:</strong> ${o.problema}</div>
+        ${laudoOficinaFormHTML(o)}
+      </div>
+    </div>`;
+  });
+  return `
+    <div class="topbar"><div><div class="page-title">🩺 Diagnóstico Oficina</div><div class="page-sub">Laudo técnico das OS abertas — integrado com Peças</div></div></div>
+    <div class="content">
+      <div class="alert alert-blue">💡 Ao salvar o laudo com Oficina, Defeito Encontrado e Solução preenchidos, a OS avança automaticamente para "Diagnóstico / Oficina". Use "Ver Peças" para cadastrar as peças desta OS.</div>
+      ${cards.length?cards.join(''):'<div class="card"><div class="empty-state"><div class="empty-icon">🩺</div><p>Nenhuma OS aguardando diagnóstico</p></div></div>'}
+    </div>`;
+}
+
+// ─── PEÇAS DA OS (seção própria, integrada com Diagnóstico Oficina) ──────────
+window._pecasOpenOS=new Set();
+function togglePecasOS(osNum){
+  const el=document.getElementById('pc-body-'+osNum);
+  if(!el)return;
+  const isOpen=el.style.display!=='none';
+  el.style.display=isOpen?'none':'block';
+  if(isOpen) window._pecasOpenOS.delete(osNum); else window._pecasOpenOS.add(osNum);
+  const icon=document.getElementById('pc-icon-'+osNum);
+  if(icon)icon.textContent=isOpen?'▶':'▼';
+}
+function renderPecaRowsOS(o, readOnly){
+  const pecas=o.pecas||[];
+  if(!pecas.length) return '<div class="empty-state" style="padding:12px;font-size:12px">Nenhuma peça adicionada</div>';
+  return pecas.map(p=>`
+    <div class="form-row" style="align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px">
+      ${p.foto?`<img src="${p.foto}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex:none"/>`:'<div style="width:44px;height:44px;border-radius:6px;background:var(--gray-light);flex:none;display:flex;align-items:center;justify-content:center;font-size:18px">🔩</div>'}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${p.qtde}x ${p.desc}</div>
+        <div style="font-size:12px;color:var(--gray)">${[p.marca&&('Marca: '+p.marca),p.ref&&('Ref.: '+p.ref)].filter(Boolean).join(' · ')||'—'}</div>
+        ${p.obs?`<div style="font-size:12px;color:var(--gray)">Obs.: ${p.obs}</div>`:''}
+      </div>
+      ${readOnly?'':`<button type="button" class="btn btn-sm btn-danger" onclick="removePecaOS('${o.num}','${p.id}')">🗑</button>`}
+    </div>`).join('');
+}
+async function addPecaOS(osNum){
+  const o=state.os.find(x=>x.num===osNum);
+  if(!o)return;
+  const qtde=+document.getElementById('pc-qtde-'+osNum).value||1;
+  const desc=document.getElementById('pc-desc-'+osNum).value.trim();
+  const marca=document.getElementById('pc-marca-'+osNum).value.trim();
+  const ref=document.getElementById('pc-ref-'+osNum).value.trim();
+  const obs=document.getElementById('pc-obs-'+osNum).value.trim();
+  const fileInput=document.getElementById('pc-foto-'+osNum);
+  const file=fileInput.files[0];
+  if(!desc){alert('Informe a descrição da peça.');return}
+  const push=async(foto)=>{
+    const id=Date.now()+'_'+Math.random().toString(36).slice(2,7);
+    const pecas=[...(o.pecas||[]), {id,qtde,desc,marca,ref,foto:foto||'',obs}];
+    window._pecasOpenOS.add(osNum);
+    window._pageDirty=false;
+    await window._fb.save(window._fb.cols.os, {...o, pecas});
+  };
+  if(file){
+    const reader=new FileReader();
+    reader.onload=()=>push(reader.result);
+    reader.readAsDataURL(file);
+  } else await push('');
+}
+async function removePecaOS(osNum,pecaId){
+  const o=state.os.find(x=>x.num===osNum);
+  if(!o)return;
+  const pecas=(o.pecas||[]).filter(p=>String(p.id)!==String(pecaId));
+  window._pecasOpenOS.add(osNum);
+  await window._fb.save(window._fb.cols.os, {...o, pecas});
+}
+function toggleDispensaPecaOS(osNum){
+  const cb=document.getElementById('pc-dispensa-'+osNum);
+  const wrap=document.getElementById('pc-form-'+osNum);
+  if(wrap) wrap.style.display=cb.checked?'none':'block';
+  const o=state.os.find(x=>x.num===osNum);
+  if(o){ window._pecasOpenOS.add(osNum); window._fb.save(window._fb.cols.os, {...o, dispensaPeca:cb.checked}); }
+}
+function renderPecasOS(){
+  const osList=state.os.filter(o=>o.status!=='Cancelada'&&o.status!=='Concluída').slice().sort((a,b)=>(b.num||'').localeCompare(a.num||''));
+  const cards=osList.map(o=>{
+    const isOpen=window._pecasOpenOS.has(o.num);
+    const pecas=o.pecas||[];
+    return `<div class="card" style="margin-bottom:12px">
+      <div onclick="togglePecasOS('${o.num}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="pc-icon-${o.num}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
+          <strong>${o.num}</strong>
+          <span style="font-size:12px;color:var(--gray)">${o.placa} · ${o.modelo||''}${o.oficina?' · Oficina: '+o.oficina:''}</span>
+          <span class="badge ${getStatusBadge(o.status)}">${o.status}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:12px;color:var(--gray)">${o.dispensaPeca?'Peça dispensada':pecas.length+' peça(s)'}</span>
+          <button type="button" class="btn btn-sm btn-outline" onclick="event.stopPropagation();window._diagOpenOS.add('${o.num}');go('diagnostico')">🩺 Ver Diagnóstico</button>
+        </div>
+      </div>
+      <div id="pc-body-${o.num}" style="display:${isOpen?'block':'none'};margin-top:14px">
+        ${o.defeitoMecanico?`<div class="alert alert-blue" style="margin-bottom:12px"><strong>Defeito encontrado pelo mecânico:</strong> ${o.defeitoMecanico}</div>`:''}
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:0 0 14px;cursor:pointer">
+          <input type="checkbox" id="pc-dispensa-${o.num}" ${o.dispensaPeca?'checked':''} onchange="toggleDispensaPecaOS('${o.num}')"/>
+          Dispensar necessidade de peça
+        </label>
+        <div id="pc-form-${o.num}" class="draft-form" style="display:${o.dispensaPeca?'none':'block'}">
+          <div class="form-row">
+            <div class="form-group" style="max-width:100px"><label>Qtde.</label><input type="number" id="pc-qtde-${o.num}" min="1" value="1"/></div>
+            <div class="form-group"><label>Descrição</label><input id="pc-desc-${o.num}"/></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Marca</label><input id="pc-marca-${o.num}"/></div>
+            <div class="form-group"><label>Referência</label><input id="pc-ref-${o.num}"/></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Foto da Peça</label><input type="file" accept="image/*" id="pc-foto-${o.num}"/></div>
+            <div class="form-group"><label>Observação</label><input id="pc-obs-${o.num}"/></div>
+          </div>
+          <div class="modal-actions" style="justify-content:flex-start;border:none;padding-top:0;margin:0 0 12px">
+            <button type="button" class="btn btn-primary btn-sm" onclick="addPecaOS('${o.num}')">+ Adicionar Peça</button>
+          </div>
+          <div id="pc-list-${o.num}">${renderPecaRowsOS(o)}</div>
+        </div>
+      </div>
+    </div>`;
+  });
+  return `
+    <div class="topbar"><div><div class="page-title">🔩 Peças</div><div class="page-sub">Peças necessárias por OS — integrado com Diagnóstico Oficina e Cotações</div></div></div>
+    <div class="content">
+      <div class="alert alert-blue">💡 As peças cadastradas aqui alimentam as Cotações. Marque "Dispensar necessidade de peça" para OS que não precisam de peças. Use "Ver Diagnóstico" para abrir o laudo desta OS.</div>
+      ${cards.length?cards.join(''):'<div class="card"><div class="empty-state"><div class="empty-icon">🔩</div><p>Nenhuma OS cadastrada</p></div></div>'}
+    </div>`;
 }
 
 // ─── VEÍCULOS ────────────────────────────────────────────────────────────────
@@ -490,9 +732,9 @@ function renderVeiculos(){
     </div>`;
 }
 function novoVeiculo(){
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">🚙 Cadastrar Veículo</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">🚙 Cadastrar Veículo</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <div class="form-row"><div class="form-group"><label>Placa *</label><input id="v-placa" placeholder="ABC-1234"/></div>
         <div class="form-group"><label>Modelo *</label><input id="v-modelo" placeholder="Fiat Strada 1.3"/></div></div>
       <div class="form-row"><div class="form-group"><label>Motorista *</label><input id="v-motorista"/></div>
@@ -500,7 +742,7 @@ function novoVeiculo(){
       <div class="form-row"><div class="form-group"><label>Cor</label><input id="v-cor"/></div>
         <div class="form-group"><label>Observação</label><input id="v-obs"/></div></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveVeiculo()">Salvar</button>
       </div>
     </div></div>`);
@@ -516,9 +758,9 @@ async function saveVeiculo(){
 }
 function editVeiculo(id){
   const v=state.veiculos.find(x=>x.id===id);if(!v)return;
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">✏️ Editar Veículo</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">✏️ Editar Veículo</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <input type="hidden" id="edit-v-id" value="${id}"/>
       <div class="form-row"><div class="form-group"><label>Placa</label><input id="v-placa-e" value="${v.placa}"/></div>
         <div class="form-group"><label>Modelo</label><input id="v-modelo-e" value="${v.modelo}"/></div></div>
@@ -527,7 +769,7 @@ function editVeiculo(id){
       <div class="form-row"><div class="form-group"><label>Cor</label><input id="v-cor-e" value="${v.cor}"/></div>
         <div class="form-group"><label>Obs.</label><input id="v-obs-e" value="${v.obs||''}"/></div></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="updateVeiculo()">Atualizar</button>
       </div>
     </div></div>`);
@@ -554,6 +796,29 @@ function calcTotalCotacao(c){
   const descVal=subtotal*(+c.desconto||0)/100;
   return {subtotal, descVal, total:subtotal-descVal};
 }
+// OS que já têm cotação lançada e ainda aguardam decisão de aprovação (nem aprovada, nem reprovada)
+function getOSNumsAguardandoAprovacao(){
+  const osComCot=[...new Set(state.cotacoes.map(c=>c.os))];
+  return osComCot.filter(osNum=>{
+    const cotsOS=state.cotacoes.filter(c=>c.os===osNum);
+    const aprovsOS=state.aprovacoes.filter(a=>a.os===osNum&&a.cotacaoId);
+    const cotAprovada=cotsOS.find(c=>{
+      const a=aprovsOS.find(x=>x.cotacaoId===c.id);
+      return a&&a.status==='Aprovada';
+    });
+    if(cotAprovada) return false;
+    if(cotsOS.length && cotsOS.every(c=>{const a=aprovsOS.find(x=>x.cotacaoId===c.id);return a&&a.status==='Reprovada';})) return false;
+    return true;
+  });
+}
+// OS com peças cadastradas (não dispensadas) que ainda não têm nenhuma cotação lançada
+function getOSNumsPendentesCotacao(){
+  const osComCot=new Set(state.cotacoes.map(c=>c.os));
+  return state.os
+    .filter(o=>o.status!=='Cancelada'&&o.status!=='Concluída')
+    .filter(o=>!o.dispensaPeca && (o.pecas||[]).length>0 && !osComCot.has(o.num))
+    .map(o=>o.num);
+}
 window._cotOpenOS=new Set();
 function toggleCotacaoOS(osNum){
   const el=document.getElementById('cot-body-'+osNum);
@@ -567,7 +832,7 @@ function toggleCotacaoOS(osNum){
 function updateCotacaoPreco(cotId,pecaId,value){
   const c=state.cotacoes.find(x=>x.id===cotId);
   if(!c)return;
-  const precos={...(c.precos||{}),[pecaId]:+value||0};
+  const precos={...(c.precos||{}),[pecaId]:parseMoney(value)};
   window._fb.save(window._fb.cols.cotacoes, {...c, precos});
 }
 function updateCotacaoDesconto(cotId,value){
@@ -576,8 +841,9 @@ function updateCotacaoDesconto(cotId,value){
   window._fb.save(window._fb.cols.cotacoes, {...c, desconto:+value||0});
 }
 function renderCotacoes(){
-  const osComCot=[...new Set(state.cotacoes.map(c=>c.os))];
-  const todasOS=state.os.filter(o=>!o.dispensaPeca&&o.pecas&&o.pecas.length).map(o=>o.num);
+  const osAtivas=new Set(state.os.filter(o=>o.status!=='Concluída'&&o.status!=='Cancelada').map(o=>o.num));
+  const osComCot=[...new Set(state.cotacoes.map(c=>c.os))].filter(osNum=>osAtivas.has(osNum));
+  const todasOS=state.os.filter(o=>!o.dispensaPeca&&o.pecas&&o.pecas.length&&osAtivas.has(o.num)).map(o=>o.num);
   const osOrdenadas=[...new Set([...todasOS,...osComCot])];
   const cards=osOrdenadas.map(osNum=>{
     const o=state.os.find(x=>x.num===osNum);
@@ -591,7 +857,7 @@ function renderCotacoes(){
     const pecaRows=pecas.map(p=>{
       const cells=cotsOS.map(c=>{
         const val=(c.precos&&c.precos[p.id]!=null)?c.precos[p.id]:'';
-        return `<td><input type="number" step="0.01" value="${val}" style="width:100px" onchange="updateCotacaoPreco(${c.id},'${p.id}',this.value)"/></td>`;
+        return `<td><input type="text" inputmode="decimal" class="money-input" value="${moneyIn(val)}" style="width:110px" placeholder="R$ 0,00" onchange="updateCotacaoPreco(${c.id},'${p.id}',this.value)"/></td>`;
       }).join('');
       return `<tr><td>${p.desc}</td><td>${p.marca||'—'}</td><td>${p.qtde}</td>${cells}</tr>`;
     }).join('');
@@ -656,7 +922,7 @@ function renderCotPrecoInputs(osNum,prefix,precos){
   const pecas=pecasDaOSCotacao(osNum);
   if(!pecas.length) return '';
   return pecas.map(p=>`
-    <div class="form-group"><label>Valor — ${p.desc}${p.marca?' ('+p.marca+')':''} (Qtd ${p.qtde})</label><input type="number" step="0.01" id="${prefix}${p.id}" value="${precos&&precos[p.id]!=null?precos[p.id]:''}" placeholder="R$"/></div>`).join('');
+    <div class="form-group"><label>Valor — ${p.desc}${p.marca?' ('+p.marca+')':''} (Qtd ${p.qtde})</label><input type="text" inputmode="decimal" class="money-input" id="${prefix}${p.id}" value="${precos&&precos[p.id]!=null?moneyIn(precos[p.id]):''}" placeholder="R$ 0,00"/></div>`).join('');
 }
 function onCotacaoOSChange(){
   const osNum=document.getElementById('c-os').value;
@@ -685,7 +951,7 @@ function addFornecedorTmp(){
   if(!osNum||!fornecedor){alert('Informe a OS e o Fornecedor.');return}
   const pecas=pecasDaOSCotacao(osNum);
   const precos={};
-  pecas.forEach(p=>{const el=document.getElementById('cf-preco-'+p.id); precos[p.id]=el?(+el.value||0):0;});
+  pecas.forEach(p=>{const el=document.getElementById('cf-preco-'+p.id); precos[p.id]=el?parseMoney(el.value):0;});
   const pgto=document.getElementById('c-pgto').value;
   const obs=document.getElementById('c-obs').value;
   window._cotFornTmp.push({fornecedor,precos,pgto,obs});
@@ -705,9 +971,9 @@ function novaCotacao(osPresel){
   const osAtual=osPresel||(osList[0]?osList[0].num:'');
   const osOptions=osList.map(o=>`<option value="${o.num}"${o.num===osAtual?' selected':''}>${o.num} — ${o.placa}</option>`).join('');
   const fornList=state.fornecedores.map(f=>`<option>${f.fantasia}</option>`).join('');
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal" style="max-width:640px">
-      <div class="modal-header"><div class="modal-title">💰 Adicionar Fornecedores à Cotação</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">💰 Adicionar Fornecedores à Cotação</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <div class="form-group"><label>OS # *</label><select id="c-os" ${osPresel?'disabled':''} onchange="onCotacaoOSChange()">${osOptions}</select></div>
       <div style="font-size:12px;font-weight:600;color:var(--gray);margin:8px 0 6px;text-transform:uppercase">Peças desta OS</div>
       <div id="cot-pecas-ref">${renderCotPecasRef(osAtual)}</div>
@@ -720,11 +986,11 @@ function novaCotacao(osPresel){
         <div class="form-group"><label>Observação</label><input id="c-obs"/></div>
       </div>
       <div class="modal-actions" style="justify-content:flex-start;margin:0 0 12px">
-        <button type="button" class="btn btn-outline btn-sm" onclick="addFornecedorTmp()">+ Adicionar Fornecedor</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="addFornecedorTmp()">+ Adicionar Fornecedor</button>
       </div>
       <div id="cot-forn-list">${renderCotFornRows()}</div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveCotacoes()">Salvar</button>
       </div>
     </div></div>`);
@@ -732,7 +998,13 @@ function novaCotacao(osPresel){
 async function saveCotacoes(){
   const os=document.getElementById('c-os').value;
   if(!os){alert('Informe a OS.');return}
-  if(!window._cotFornTmp.length){alert('Adicione ao menos um fornecedor.');return}
+  if(!window._cotFornTmp.length){
+    const ok=confirm('Nenhum fornecedor foi adicionado. Deseja salvar mesmo assim, sem fornecedor?');
+    if(!ok) return;
+    window._cotOpenOS.add(os);
+    closeModal();
+    return;
+  }
   for(const f of window._cotFornTmp){
     const id=Date.now()+Math.floor(Math.random()*1000);
     await window._fb.save(window._fb.cols.cotacoes, {id,os,fornecedor:f.fornecedor,desconto:0,precos:f.precos,pgto:f.pgto,obs:f.obs,escolhido:false});
@@ -744,9 +1016,9 @@ function editCotacao(id){
   const c=state.cotacoes.find(x=>x.id===id);
   if(!c)return;
   const fornList=state.fornecedores.map(f=>`<option>${f.fantasia}</option>`).join('');
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal" style="max-width:640px">
-      <div class="modal-header"><div class="modal-title">✏️ Editar Fornecedor — ${c.os}</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">✏️ Editar Fornecedor — ${c.os}</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <input type="hidden" id="cf-edit-id" value="${id}"/>
       <div class="form-group"><label>Fornecedor *</label><input id="cf-forn-edit" list="cf-forn-edit-list" value="${c.fornecedor||''}"/><datalist id="cf-forn-edit-list">${fornList}</datalist></div>
       <div style="font-size:12px;font-weight:600;color:var(--gray);margin:8px 0 6px;text-transform:uppercase">Valores por peça</div>
@@ -756,7 +1028,7 @@ function editCotacao(id){
         <div class="form-group"><label>Observação</label><input id="cf-obs-edit" value="${c.obs||''}"/></div>
       </div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="updateCotacao()">Salvar</button>
       </div>
     </div></div>`);
@@ -767,7 +1039,7 @@ async function updateCotacao(){
   if(!c)return;
   const pecas=pecasDaOSCotacao(c.os);
   const precos={};
-  pecas.forEach(p=>{const el=document.getElementById('cfe-preco-'+p.id); precos[p.id]=el?(+el.value||0):0;});
+  pecas.forEach(p=>{const el=document.getElementById('cfe-preco-'+p.id); precos[p.id]=el?parseMoney(el.value):0;});
   const updated={...c,
     fornecedor:document.getElementById('cf-forn-edit').value.trim(),
     precos,
@@ -807,15 +1079,6 @@ function renderAprovacoes(){
             <label>Data fim</label>
             <input type="date" id="ap-f-fim" onchange="renderAprovacoesFiltro()"/>
           </div>
-          <div class="form-group" style="margin:0;flex:1;min-width:160px">
-            <label>Status</label>
-            <select id="ap-f-status" onchange="renderAprovacoesFiltro()">
-              <option value="">Todos</option>
-              <option value="Aguardando Aprovação">Pendentes</option>
-              <option value="Aprovada">Aprovadas</option>
-              <option value="Reprovada">Reprovadas</option>
-            </select>
-          </div>
           <button class="btn btn-outline" style="margin-bottom:1px" onclick="limparFiltroAprov()">✕ Limpar</button>
         </div>
       </div>
@@ -826,10 +1089,9 @@ function renderAprovacoes(){
 function renderAprovacoesFiltro(){
   const ini=document.getElementById('ap-f-ini')?.value||'';
   const fim=document.getElementById('ap-f-fim')?.value||'';
-  const st=document.getElementById('ap-f-status')?.value||'';
 
-  // Todas as OS que possuem ao menos uma cotação (única origem das aprovações agora)
-  let osOrdenadas=[...new Set(state.cotacoes.map(c=>c.os))];
+  // Apenas OS com cotação lançada que ainda aguardam decisão de aprovação
+  let osOrdenadas=getOSNumsAguardandoAprovacao();
 
   const cards=osOrdenadas.map(osNum=>{
     const o=state.os.find(x=>x.num===osNum);
@@ -837,14 +1099,7 @@ function renderAprovacoesFiltro(){
     const cotsOS=state.cotacoes.filter(c=>c.os===osNum);
     let aprovsOS=state.aprovacoes.filter(a=>a.os===osNum&&a.cotacaoId);
 
-    // Filtro de status: aplica-se às cotações via status de sua aprovação (ou 'Aguardando Aprovação' se não houver)
-    const statusDaCot=c=>{
-      const a=aprovsOS.find(x=>x.cotacaoId===c.id);
-      return a?a.status:'Aguardando Aprovação';
-    };
     let cotsVisiveis=cotsOS;
-    if(st) cotsVisiveis=cotsOS.filter(c=>statusDaCot(c)===st);
-
     if(ini||fim){
       const osData=o?.data||'';
       cotsVisiveis=cotsVisiveis.filter(c=>{
@@ -858,19 +1113,9 @@ function renderAprovacoesFiltro(){
     }
 
     // Se não sobrou nenhuma cotação visível para esta OS após os filtros, oculta o card
-    if((st||ini||fim) && !cotsVisiveis.length) return '';
+    if((ini||fim) && !cotsVisiveis.length) return '';
 
     const minValor=cotsOS.length?Math.min(...cotsOS.map(c=>calcTotalCotacao(c).total)):null;
-
-    // Já existe alguma cotação aprovada para esta OS?
-    const cotAprovada=cotsOS.find(c=>{
-      const a=aprovsOS.find(x=>x.cotacaoId===c.id);
-      return a&&a.status==='Aprovada';
-    });
-
-    let statusResumo='Aguardando Aprovação';
-    if(cotAprovada) statusResumo='Aprovada';
-    else if(cotsOS.length && cotsOS.every(c=>{const a=aprovsOS.find(x=>x.cotacaoId===c.id);return a&&a.status==='Reprovada';})) statusResumo='Reprovada';
 
     const isOpen=window._apOpenOS.has(osNum);
 
@@ -900,10 +1145,8 @@ function renderAprovacoesFiltro(){
     const acaoCells=cotsVisiveis.map(c=>{
       const aprovDaCot=aprovsOS.find(a=>a.cotacaoId===c.id);
       const status=aprovDaCot?aprovDaCot.status:'Aguardando Aprovação';
-      // Bloqueia ações se: esta cotação já foi decidida, OU outra cotação da mesma OS já foi aprovada
-      const bloqueadaPorOutra=!!cotAprovada && (!aprovDaCot || aprovDaCot.status!=='Aprovada');
-      const jaDecidida=status!=='Aguardando Aprovação';
-      const podeAgir=!jaDecidida && !bloqueadaPorOutra;
+      // Como só chegam aqui OS ainda sem cotação aprovada, basta checar se esta cotação já foi decidida
+      const podeAgir=status==='Aguardando Aprovação';
       const btns=podeAgir
         ? `<button class="btn btn-sm btn-success" onclick="tryApproveCotacao('${osNum}',${c.id})">✅ Aprovar</button>
            <button class="btn btn-sm btn-danger" onclick="reproveCotacao('${osNum}',${c.id})">❌ Reprovar</button>`
@@ -916,12 +1159,11 @@ function renderAprovacoesFiltro(){
         <div style="display:flex;align-items:center;gap:10px">
           <span id="ap-icon-${osNum}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
           <strong>${osNum}</strong>
-          ${o?`<span style="font-size:12px;color:var(--gray)">${o.placa} · ${o.modelo||''}${o.oficina?' · Oficina: '+o.oficina:''}${o.mo?' · M.O.: '+fmt(o.mo):''}</span><span class="badge ${getStatusBadge(o.status)}">${o.status}</span>`:''}
+          ${o?`<span style="font-size:12px;color:var(--gray)">${o.placa} · ${o.modelo||''}${o.oficina?' · Oficina: '+o.oficina:''}${o.mo?' · M.O.: '+fmt(o.mo):''}</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <span style="font-size:12px;color:var(--gray)">${cotsOS.length} cotação(ões)</span>
           ${cotsOS.length?`<strong style="color:var(--green);font-size:13px">${fmt(minValor)} menor</strong>`:''}
-          <span class="badge ${getStatusBadge(statusResumo)}">${statusResumo}${cotAprovada?' · '+fmt(aprovsOS.find(a=>a.cotacaoId===cotAprovada.id).valor):''}</span>
         </div>
       </div>
       <div id="ap-body-${osNum}" style="display:${isOpen?'block':'none'};margin-top:14px">
@@ -952,7 +1194,6 @@ function renderAprovacoesFiltro(){
 function limparFiltroAprov(){
   const ini=document.getElementById('ap-f-ini');if(ini)ini.value='';
   const fim=document.getElementById('ap-f-fim');if(fim)fim.value='';
-  const st=document.getElementById('ap-f-status');if(st)st.value='';
   renderAprovacoesFiltro();
 }
 
@@ -1073,6 +1314,26 @@ function getManutencoesGeradas(){
     .filter(Boolean);
 }
 
+function renderManutVeiculosAndamento(){
+  const grupos=[
+    {status:'Diagnóstico / Oficina', label:'Em Diagnóstico', action:o=>`window._diagOpenOS.add('${o.num}');go('diagnostico')`},
+    {status:'Execução', label:'Em Execução', action:o=>`editOS(${o.id})`}
+  ];
+  const blocks=grupos.map(g=>{
+    const lista=state.os.filter(o=>o.status===g.status);
+    if(!lista.length) return '';
+    const btns=lista.map(o=>`
+      <button type="button" class="diag-veiculo-btn" onclick="${g.action(o)}">
+        <div class="diag-veiculo-placa">${o.placa} <span style="font-weight:400;color:var(--gray)">${o.modelo||''}</span></div>
+        <div class="diag-veiculo-info">${o.num} · ${fmtDate(o.data)}</div>
+      </button>`).join('');
+    return `<div style="margin-bottom:16px">
+      <div class="card-title" style="margin-bottom:10px">${g.label} (${lista.length})</div>
+      <div class="diag-grid">${btns}</div>
+    </div>`;
+  }).join('');
+  return blocks;
+}
 function renderManutencoes(){
   const linhasTodas=getManutencoesGeradas().filter(m=>m.status!=='Concluída');
   const osOptions=[...new Set(linhasTodas.map(m=>m.os))].map(os=>`<option value="${os}">${os}</option>`).join('');
@@ -1081,6 +1342,7 @@ function renderManutencoes(){
     <div class="topbar"><div><div class="page-title">🔧 Manutenções</div><div class="page-sub">Responsável: Bruna — Gerado automaticamente a partir das cotações aprovadas</div></div></div>
     <div class="content">
       <div class="alert alert-blue">💡 Estas linhas vêm automaticamente das cotações aprovadas em ✅ Aprovações. Ao dar baixa, a OS sai desta lista e passa para o Histórico do veículo.</div>
+      ${renderManutVeiculosAndamento()}
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
           <div class="form-group" style="margin:0;flex:1;min-width:140px">
@@ -1181,13 +1443,13 @@ function editManutDesc(cotacaoId){
   const linhas=getManutencoesGeradas();
   const m=linhas.find(x=>String(x.cotacaoId)===String(cotacaoId));
   if(!m)return;
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">✏️ Editar Solução — ${m.os}</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">✏️ Editar Solução — ${m.os}</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <input type="hidden" id="md-cotid" value="${cotacaoId}"/>
       <div class="form-group"><label>Solução</label><textarea id="md-desc" rows="3">${m.desc}</textarea></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveManutDesc()">Salvar</button>
       </div>
     </div></div>`);
@@ -1238,9 +1500,9 @@ function renderPecas(){
 function novaPeca(){
   const osList=state.os.map(o=>`<option>${o.num}</option>`).join('');
   const fornList=state.fornecedores.map(f=>`<option>${f.fantasia}</option>`).join('');
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">🔩 Registrar Peça</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">🔩 Registrar Peça</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <div class="form-row">
         <div class="form-group"><label>OS #</label><select id="p-os">${osList}</select></div>
         <div class="form-group"><label>Peça *</label><input id="p-peca"/></div>
@@ -1251,18 +1513,18 @@ function novaPeca(){
       </div>
       <div class="form-row">
         <div class="form-group"><label>Fornecedor</label><input id="p-forn" list="pf-list"/><datalist id="pf-list">${fornList}</datalist></div>
-        <div class="form-group"><label>Vlr. Unitário (R$)</label><input type="number" id="p-vlr" step="0.01"/></div>
+        <div class="form-group"><label>Vlr. Unitário</label><input type="text" inputmode="decimal" class="money-input" id="p-vlr" placeholder="R$ 0,00"/></div>
       </div>
       <div class="form-group"><label>Observação</label><input id="p-obs"/></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="savePeca()">Salvar</button>
       </div>
     </div></div>`);
 }
 async function savePeca(){
   const id=Date.now();
-  const obj={id, os:document.getElementById('p-os').value, peca:document.getElementById('p-peca').value, marca:document.getElementById('p-marca').value, qtde:+document.getElementById('p-qtde').value||1, fornecedor:document.getElementById('p-forn').value, vlrUnit:+document.getElementById('p-vlr').value||0, obs:document.getElementById('p-obs').value};
+  const obj={id, os:document.getElementById('p-os').value, peca:document.getElementById('p-peca').value, marca:document.getElementById('p-marca').value, qtde:+document.getElementById('p-qtde').value||1, fornecedor:document.getElementById('p-forn').value, vlrUnit:parseMoney(document.getElementById('p-vlr').value), obs:document.getElementById('p-obs').value};
   await window._fb.save(window._fb.cols.pecas, obj);
   closeModal();
 }
@@ -1324,16 +1586,16 @@ function renderHistoricoResult(){
   const itens=getHistoricoFiltrado();
   const totalGasto=itens.reduce((a,{m})=>a+(m?m.total:0),0);
   const veiculosDistintos=new Set(itens.map(({o})=>o.placa)).size;
-  const rows=itens.map(({o,m})=>`<tr>
+  const rows=itens.map(({o,m})=>`<tr style="cursor:pointer" onclick="verDetalhesOS(${o.id})">
       <td><strong>${o.num}</strong></td>
       <td>${fmtDate(o.data)}</td>
       <td><strong>${o.placa}</strong></td>
       <td>${o.modelo||'—'}</td>
-      <td><span class="badge ${getStatusBadge(o.status)}">${o.status}</span></td>
-      <td>${m?m.oficina:'—'}</td>
+      <td>${m?m.oficina:(o.oficina||'—')}</td>
       <td>${o.solucao||'—'}</td>
+      <td>${m?fmt(m.vlrPecas):'—'}</td>
+      <td>${m?fmt(m.vlrMO):(o.mo?fmt(o.mo):'—')}</td>
       <td>${m?fmt(m.total):'—'}</td>
-      <td>${m?m.nf:'—'}</td>
       <td>${o.problema}</td>
     </tr>`).join('');
   div.innerHTML=`
@@ -1346,7 +1608,7 @@ function renderHistoricoResult(){
     </div>
     <div class="card">
       <div class="table-wrap">
-        <table><thead><tr><th>OS #</th><th>Data</th><th>Placa</th><th>Veículo</th><th>Status</th><th>Oficina</th><th>Serviço</th><th>Total</th><th>NF</th><th>Problema</th></tr></thead>
+        <table><thead><tr><th>OS #</th><th>Data</th><th>Placa</th><th>Veículo</th><th>Oficina</th><th>Serviço</th><th>Vlr. Peças</th><th>Vlr. M.O.</th><th>Total</th><th>Defeito</th></tr></thead>
         <tbody>${rows||'<tr><td colspan="10" style="text-align:center;padding:24px;color:#64748B">Nenhuma OS encontrada para os filtros aplicados</td></tr>'}</tbody></table>
       </div>
     </div>`;
@@ -1409,9 +1671,9 @@ function renderOficinas(){
     </div>`;
 }
 function novaOficina(){
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">🏭 Cadastrar Oficina</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">🏭 Cadastrar Oficina</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <div class="form-row">
         <div class="form-group"><label>Razão Social</label><input id="of-razao"/></div>
         <div class="form-group"><label>Nome Fantasia *</label><input id="of-fantasia"/></div>
@@ -1426,7 +1688,7 @@ function novaOficina(){
       </div>
       <div class="form-group"><label>Contato</label><input id="of-cont"/></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveOficina()">Salvar</button>
       </div>
     </div></div>`);
@@ -1441,9 +1703,9 @@ async function saveOficina(){
 }
 function editOficina(id){
   const o=state.oficinas.find(x=>x.id===id);if(!o)return;
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">✏️ Editar Oficina</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">✏️ Editar Oficina</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <input type="hidden" id="edit-of-id" value="${id}"/>
       <div class="form-row">
         <div class="form-group"><label>Razão Social</label><input id="of-razao-e" value="${o.razao}"/></div>
@@ -1459,7 +1721,7 @@ function editOficina(id){
       </div>
       <div class="form-group"><label>Contato</label><input id="of-cont-e" value="${o.contato}"/></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="updateOficina()">Atualizar</button>
       </div>
     </div></div>`);
@@ -1488,7 +1750,6 @@ function renderFornecedores(){
     <td><strong>${f.fantasia}</strong></td>
     <td>${f.cnpj}</td>
     <td>${f.tel}</td>
-    <td>${f.tipo}</td>
     <td>${f.contato}</td>
     <td>${f.email||'—'}</td>
     <td><div class="action-btns">
@@ -1502,16 +1763,16 @@ function renderFornecedores(){
     <div class="content">
       <div class="card">
         <div class="table-wrap">
-          <table><thead><tr><th>Razão Social</th><th>Fantasia</th><th>CNPJ</th><th>Telefone</th><th>Tipo</th><th>Contato</th><th>Email</th><th>Ações</th></tr></thead>
-          <tbody>${rows||'<tr><td colspan="8" style="text-align:center;padding:32px;color:#64748B">Nenhum fornecedor cadastrado</td></tr>'}</tbody></table>
+          <table><thead><tr><th>Razão Social</th><th>Fantasia</th><th>CNPJ</th><th>Telefone</th><th>Contato</th><th>Email</th><th>Ações</th></tr></thead>
+          <tbody>${rows||'<tr><td colspan="7" style="text-align:center;padding:32px;color:#64748B">Nenhum fornecedor cadastrado</td></tr>'}</tbody></table>
         </div>
       </div>
     </div>`;
 }
 function novoFornecedor(){
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">🏪 Cadastrar Fornecedor</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">🏪 Cadastrar Fornecedor</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <div class="form-row">
         <div class="form-group"><label>Razão Social</label><input id="fn-razao"/></div>
         <div class="form-group"><label>Nome Fantasia *</label><input id="fn-fantasia"/></div>
@@ -1521,15 +1782,12 @@ function novoFornecedor(){
         <div class="form-group"><label>Telefone</label><input id="fn-tel"/></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Tipo</label><select id="fn-tipo"><option>Peças</option><option>Oficina</option><option>Combustível</option><option>Outros</option></select></div>
         <div class="form-group"><label>Contato</label><input id="fn-cont"/></div>
-      </div>
-      <div class="form-row">
         <div class="form-group"><label>Email</label><input type="email" id="fn-email"/></div>
-        <div class="form-group"><label>Endereço</label><input id="fn-end"/></div>
       </div>
+      <div class="form-group"><label>Endereço</label><input id="fn-end"/></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveFornecedor()">Salvar</button>
       </div>
     </div></div>`);
@@ -1538,15 +1796,15 @@ async function saveFornecedor(){
   const f=document.getElementById('fn-fantasia').value;
   if(!f){alert('Informe o nome fantasia.');return}
   const id=Date.now();
-  const obj={id, razao:document.getElementById('fn-razao').value, fantasia:f, cnpj:document.getElementById('fn-cnpj').value, tel:document.getElementById('fn-tel').value, tipo:document.getElementById('fn-tipo').value, contato:document.getElementById('fn-cont').value, email:document.getElementById('fn-email').value, endereco:document.getElementById('fn-end').value};
+  const obj={id, razao:document.getElementById('fn-razao').value, fantasia:f, cnpj:document.getElementById('fn-cnpj').value, tel:document.getElementById('fn-tel').value, contato:document.getElementById('fn-cont').value, email:document.getElementById('fn-email').value, endereco:document.getElementById('fn-end').value};
   await window._fb.save(window._fb.cols.fornecedores, obj);
   closeModal();
 }
 function editFornecedor(id){
   const f=state.fornecedores.find(x=>x.id===id);if(!f)return;
-  openModal(`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
     <div class="modal">
-      <div class="modal-header"><div class="modal-title">✏️ Editar Fornecedor</div><button class="btn btn-ghost" onclick="closeModal()">✕</button></div>
+      <div class="modal-header"><div class="modal-title">✏️ Editar Fornecedor</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
       <input type="hidden" id="edit-fn-id" value="${id}"/>
       <div class="form-row">
         <div class="form-group"><label>Razão Social</label><input id="fn-razao-e" value="${f.razao}"/></div>
@@ -1557,12 +1815,11 @@ function editFornecedor(id){
         <div class="form-group"><label>Telefone</label><input id="fn-tel-e" value="${f.tel}"/></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Tipo</label><select id="fn-tipo-e">${['Peças','Oficina','Combustível','Outros'].map(t=>`<option${t===f.tipo?' selected':''}>${t}</option>`).join('')}</select></div>
         <div class="form-group"><label>Contato</label><input id="fn-cont-e" value="${f.contato}"/></div>
+        <div class="form-group"><label>Email</label><input id="fn-email-e" value="${f.email||''}"/></div>
       </div>
-      <div class="form-group"><label>Email</label><input id="fn-email-e" value="${f.email||''}"/></div>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="updateFornecedor()">Atualizar</button>
       </div>
     </div></div>`);
@@ -1575,7 +1832,6 @@ async function updateFornecedor(){
     fantasia:document.getElementById('fn-fantasia-e').value,
     cnpj:document.getElementById('fn-cnpj-e').value,
     tel:document.getElementById('fn-tel-e').value,
-    tipo:document.getElementById('fn-tipo-e').value,
     contato:document.getElementById('fn-cont-e').value,
     email:document.getElementById('fn-email-e').value
   };
@@ -1674,6 +1930,7 @@ function render(){
   if(!state._loaded) return;
   const pages={
     home:renderHome, os:renderOS, veiculos:renderVeiculos,
+    diagnostico:renderDiagnosticoOficina, pecasOS:renderPecasOS,
     cotacoes:renderCotacoes, aprovacoes:renderAprovacoes,
     manutencoes:renderManutencoes, pecas:renderPecas,
     historico:renderHistorico, oficinas:renderOficinas,
