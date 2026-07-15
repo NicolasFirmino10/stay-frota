@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -15,10 +16,13 @@
 </div>
 
 <div class="app" id="app" style="display:none">
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+  <button class="mobile-menu-btn" id="mobile-menu-btn" onclick="toggleSidebar()" aria-label="Abrir menu">☰</button>
   <div class="sidebar" id="sidebar">
     <div class="sidebar-logo">
       <div class="brand">🚗 STAYNET</div>
       <div class="sub">Gestão de Frota</div>
+      <button class="sidebar-close-btn" id="sidebar-close-btn" onclick="closeSidebar()" aria-label="Fechar menu">✕</button>
     </div>
     <nav class="sidebar-nav">
       <div class="nav-section">Principal</div>
@@ -36,6 +40,7 @@
       <div class="nav-item" data-page="fornecedores" onclick="go('fornecedores')"><span class="icon">🏪</span> Fornecedores</div>
       <div class="nav-section">Consultas</div>
       <div class="nav-item" data-page="historico" onclick="go('historico')"><span class="icon">📂</span> Histórico</div>
+      <div class="nav-item" data-page="financeiro" onclick="go('financeiro')"><span class="icon">💵</span> Resumo Financeiro</div>
     </nav>
   </div>
   <div class="main" id="main-content"></div>

@@ -40,6 +40,21 @@ function formatMoneyInput(el){
   el.setSelectionRange(len,len);
 }
 
+// ─── KM INPUT (máscara de milhar) ─────────────────────────────────────────────
+const kmIn = n => (n!=null && n!=='') ? Number(n).toLocaleString('pt-BR') : '';
+function parseKm(v){
+  if(v==null) return 0;
+  const s=String(v).replace(/\D/g,'');
+  return +s||0;
+}
+function formatKmInput(el){
+  const digits=el.value.replace(/\D/g,'').replace(/^0+(?=\d)/,'');
+  if(!digits){el.value='';return}
+  el.value=(+digits).toLocaleString('pt-BR');
+  const len=el.value.length;
+  el.setSelectionRange(len,len);
+}
+
 // ─── GLOBAL INPUT BEHAVIOR: máscara de moeda + maiúsculas em campos de texto ──
 document.addEventListener('input', function(e){
   const t=e.target;
@@ -48,6 +63,10 @@ document.addEventListener('input', function(e){
   if(t.closest && t.closest('.draft-form')) window._pageDirty=true;
   if(t.classList && t.classList.contains('money-input')){
     formatMoneyInput(t);
+    return;
+  }
+  if(t.classList && t.classList.contains('km-input')){
+    formatKmInput(t);
     return;
   }
   const tag=t.tagName.toLowerCase();
@@ -98,7 +117,18 @@ function go(page){
   document.querySelectorAll('.nav-item').forEach(el=>{
     el.classList.toggle('active', el.dataset.page===page);
   });
+  closeSidebar();
   render();
+}
+
+// ─── MOBILE SIDEBAR ──────────────────────────────────────────────────────────
+function toggleSidebar(){
+  document.getElementById('sidebar')?.classList.toggle('open');
+  document.getElementById('sidebar-overlay')?.classList.toggle('show');
+}
+function closeSidebar(){
+  document.getElementById('sidebar')?.classList.remove('open');
+  document.getElementById('sidebar-overlay')?.classList.remove('show');
 }
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
@@ -135,7 +165,7 @@ function showLock(cb){
         <div class="lock-icon">🔐</div>
         <div class="lock-title">Área Restrita</div>
         <div class="lock-sub">Apenas <strong>Anselmo</strong> pode aprovar valores acima de R$ 50.<br>Digite a senha para continuar.</div>
-        <div class="form-group"><input type="password" id="lock-pass" placeholder="Senha..." autofocus/></div>
+        <div class="form-group"><input type="password" id="lock-pass" placeholder="Senha..." autofocus onkeydown="if(event.key==='Enter'){event.preventDefault();event.stopPropagation();tryLock()}"/></div>
         <div id="lock-err" style="color:#DC2626;font-size:12px;margin-bottom:8px;display:none">Senha incorreta.</div>
         <div style="display:flex;gap:8px;justify-content:center">
           <button class="btn btn-primary" onclick="tryLock()">Entrar</button>
@@ -169,7 +199,7 @@ function calcHomeFinanceiro(periodo, dtIni, dtFim){
   else if(periodo==='sem'){ini=new Date(now);ini.setMonth(ini.getMonth()-6);ini.setHours(0,0,0,0);}
   else if(periodo==='custom'&&dtIni&&dtFim){ini=new Date(dtIni+'T00:00:00');fim=new Date(dtFim+'T23:59:59');}
   else{ini=null;}
-  let manuts=state.manutencoes;
+  let manuts=getManutencoesGeradas();
   if(ini){
     manuts=manuts.filter(m=>{
       if(!m.data)return false;
@@ -193,22 +223,61 @@ function renderHomeFinanceiro(){
 }
 function renderHome(){
   const os=state.os;
-  const manuts=state.manutencoes;
-  // Resumo por Status
-  const statusCounts={};
-  os.forEach(o=>{statusCounts[o.status]=(statusCounts[o.status]||0)+1});
-  const totalOS=os.length;
-  const statusList=[
-    {s:'Aberta',c:'badge-gray'},{s:'Diagnóstico / Oficina',c:'badge-red'},{s:'Cotação',c:'badge-purple'},
-    {s:'Aguardando Aprovação',c:'badge-amber'},{s:'Aprovada',c:'badge-blue'},{s:'Execução',c:'badge-blue'},
-    {s:'Concluída',c:'badge-green'},{s:'Cancelada',c:'badge-gray'}
-  ];
-  const statusRows=statusList.map(({s,c})=>{
-    const q=statusCounts[s]||0;
-    const p=totalOS?Math.round((q/totalOS)*100):0;
-    return `<tr><td><span class="badge ${c}">${s}</span></td><td><strong>${q}</strong></td><td>${p}%</td></tr>`;
-  }).join('');
-  // Top 5
+  const statusManut=['Aberta','Diagnóstico / Oficina','Cotação','Aguardando Aprovação','Aprovada','Execução'];
+  const veicsManut=new Set(os.filter(o=>statusManut.includes(o.status)).map(o=>o.placa)).size;
+  const diag=new Set(os.filter(o=>o.status==='Diagnóstico / Oficina').map(o=>o.placa)).size;
+  const osAguardApro=getOSNumsAguardandoAprovacao();
+  const aguard=new Set(osAguardApro.map(n=>os.find(o=>o.num===n)?.placa).filter(Boolean)).size;
+  const exec=new Set(os.filter(o=>o.status==='Execução').map(o=>o.placa)).size;
+  const cotPendente=getOSNumsPendentesCotacao().length;
+  const pctDiag=veicsManut?Math.round((diag/veicsManut)*100):0;
+  const pctAguard=veicsManut?Math.round((aguard/veicsManut)*100):0;
+  const pctExec=veicsManut?Math.round((exec/veicsManut)*100):0;
+  return `
+    <div class="topbar"><div><div class="page-title">🏠 Início</div><div class="page-sub">STAYNET · Gestão de Frota</div></div>
+    <span style="font-size:11px;color:#16A34A;background:#DCFCE7;padding:4px 10px;border-radius:20px;font-weight:600">🔥 Firebase Ativo</span></div>
+    <div class="content">
+      <div class="alert alert-green">✅ Dados sincronizados com Firebase Firestore em tempo real. Qualquer alteração é persistida automaticamente na nuvem.</div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:14px">▸ Indicadores Operacionais</div>
+        <div class="kpi-grid" style="margin-bottom:14px">
+          <div class="kpi clickable-box" style="border-color:var(--blue);background:var(--blue-light)" onclick="go('os')" title="Ver Ordens de Serviço">
+            <div class="kpi-label">🔧 Em Manutenção</div>
+            <div class="kpi-val" style="color:var(--blue)">${veicsManut}</div>
+            <div style="font-size:11px;color:var(--gray);margin-top:2px">veículos ativos</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+          <div class="stat-tile clickable-box" style="background:var(--red-light);border:1px solid #FECACA" onclick="go('diagnostico')" title="Ver Diagnóstico Oficina">
+            <div style="font-size:10px;color:var(--red);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Diagnóstico / Oficina</div>
+            <div style="font-size:24px;font-weight:700;color:var(--red);margin:4px 0">${diag}</div>
+            <div style="font-size:11px;color:var(--gray)">${pctDiag}% da manutenção</div>
+          </div>
+          <div class="stat-tile clickable-box" style="background:var(--purple-light);border:1px solid #DDD6FE" onclick="go('cotacoes')" title="Ver Cotações">
+            <div style="font-size:10px;color:var(--purple);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Cotação Pendente</div>
+            <div style="font-size:24px;font-weight:700;color:var(--purple);margin:4px 0">${cotPendente}</div>
+            <div style="font-size:11px;color:var(--gray)">OS aguardando cotação</div>
+          </div>
+          <div class="stat-tile clickable-box" style="background:var(--amber-light);border:1px solid #FCD34D" onclick="go('aprovacoes')" title="Ver Aprovações">
+            <div style="font-size:10px;color:var(--amber);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Aguard. Aprovação</div>
+            <div style="font-size:24px;font-weight:700;color:var(--amber);margin:4px 0">${aguard}</div>
+            <div style="font-size:11px;color:var(--gray)">${pctAguard}% da manutenção</div>
+          </div>
+          <div class="stat-tile clickable-box" style="background:var(--blue-light);border:1px solid #BFDBFE" onclick="go('manutencoes')" title="Ver Manutenções">
+            <div style="font-size:10px;color:var(--blue);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Em Execução</div>
+            <div style="font-size:24px;font-weight:700;color:var(--blue);margin:4px 0">${exec}</div>
+            <div style="font-size:11px;color:var(--gray)">${pctExec}% da manutenção</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ─── RESUMO FINANCEIRO ───────────────────────────────────────────────────────
+function renderFinanceiro(){
+  const{total:totalMes,avg}=calcHomeFinanceiro('all','','');
+  const os=state.os;
+  const manuts=getManutencoesGeradas();
   const gastoByPlaca={};
   os.forEach(o=>{
     const g=manuts.filter(x=>x.os===o.num).reduce((a,x)=>a+(+x.vlrPecas||0)+(+x.vlrMO||0),0);
@@ -220,57 +289,12 @@ function renderHome(){
   const top5Html=top5.length?top5.map(([placa,gasto],i)=>{
     const v=getVeiculo(placa);
     const pct=Math.round((gasto/maxGasto)*100);
-    return `<div class="top5-item"><div class="top5-rank ${rankClasses[i]}">${i+1}</div><div style="flex:1"><div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${placa}</strong> <span style="font-size:12px;color:var(--gray)">${v.modelo||''}</span></div><strong style="color:var(--green)">${fmt(gasto)}</strong></div><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div></div>`;
+    return `<div class="top5-item"><div class="top5-rank ${rankClasses[i]}">${i+1}</div><div style="flex:1;min-width:0"><div class="top5-row"><div class="top5-name"><strong>${placa}</strong> <span style="font-size:12px;color:var(--gray)">${v.modelo||''}</span></div><strong class="top5-value" style="color:var(--green)">${fmt(gasto)}</strong></div><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div></div>`;
   }).join(''):`<div class="empty-state"><div class="empty-icon">🏎</div><p>Nenhum dado disponível</p></div>`;
-  const statusManut=['Diagnóstico / Oficina','Cotação','Aguardando Aprovação','Aprovada','Execução'];
-  const veicsManut=new Set(os.filter(o=>statusManut.includes(o.status)).map(o=>o.placa)).size;
-  const diag=new Set(os.filter(o=>o.status==='Diagnóstico / Oficina').map(o=>o.placa)).size;
-  const osAguardApro=getOSNumsAguardandoAprovacao();
-  const aguard=new Set(osAguardApro.map(n=>os.find(o=>o.num===n)?.placa).filter(Boolean)).size;
-  const exec=new Set(os.filter(o=>o.status==='Execução').map(o=>o.placa)).size;
-  const cotPendente=getOSNumsPendentesCotacao().length;
-  const pctDiag=veicsManut?Math.round((diag/veicsManut)*100):0;
-  const pctAguard=veicsManut?Math.round((aguard/veicsManut)*100):0;
-  const pctExec=veicsManut?Math.round((exec/veicsManut)*100):0;
-  const{total:totalMes,avg}=calcHomeFinanceiro('all','','');
   return `
-    <div class="topbar"><div><div class="page-title">🏠 Início</div><div class="page-sub">STAYNET · Gestão de Frota</div></div>
-    <span style="font-size:11px;color:#16A34A;background:#DCFCE7;padding:4px 10px;border-radius:20px;font-weight:600">🔥 Firebase Ativo</span></div>
+    <div class="topbar"><div><div class="page-title">💵 Resumo Financeiro</div><div class="page-sub">Gastos consolidados de manutenção da frota</div></div></div>
     <div class="content">
-      <div class="alert alert-green">✅ Dados sincronizados com Firebase Firestore em tempo real. Qualquer alteração é persistida automaticamente na nuvem.</div>
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-title" style="margin-bottom:14px">▸ Indicadores Operacionais</div>
-        <div class="kpi-grid" style="margin-bottom:14px">
-          <div class="kpi" style="border-color:var(--blue);background:var(--blue-light)">
-            <div class="kpi-label">🔧 Em Manutenção</div>
-            <div class="kpi-val" style="color:var(--blue)">${veicsManut}</div>
-            <div style="font-size:11px;color:var(--gray);margin-top:2px">veículos ativos</div>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
-          <div style="background:var(--red-light);border:1px solid #FECACA;border-radius:10px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:var(--red);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Diagnóstico / Oficina</div>
-            <div style="font-size:24px;font-weight:700;color:var(--red);margin:4px 0">${diag}</div>
-            <div style="font-size:11px;color:var(--gray)">${pctDiag}% da manutenção</div>
-          </div>
-          <div style="background:var(--purple-light);border:1px solid #DDD6FE;border-radius:10px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:var(--purple);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Cotação Pendente</div>
-            <div style="font-size:24px;font-weight:700;color:var(--purple);margin:4px 0">${cotPendente}</div>
-            <div style="font-size:11px;color:var(--gray)">OS aguardando cotação</div>
-          </div>
-          <div style="background:var(--amber-light);border:1px solid #FCD34D;border-radius:10px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:var(--amber);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Aguard. Aprovação</div>
-            <div style="font-size:24px;font-weight:700;color:var(--amber);margin:4px 0">${aguard}</div>
-            <div style="font-size:11px;color:var(--gray)">${pctAguard}% da manutenção</div>
-          </div>
-          <div style="background:var(--blue-light);border:1px solid #BFDBFE;border-radius:10px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:var(--blue);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Em Execução</div>
-            <div style="font-size:24px;font-weight:700;color:var(--blue);margin:4px 0">${exec}</div>
-            <div style="font-size:11px;color:var(--gray)">${pctExec}% da manutenção</div>
-          </div>
-        </div>
-      </div>
-      <div class="card" style="margin-bottom:16px">
+      <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
           <div class="card-title">▸ Indicadores Financeiros</div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -293,32 +317,9 @@ function renderHome(){
           <div class="kpi"><div class="kpi-label">📊 Média / Veículo</div><div id="hf-avg" class="kpi-val" style="color:var(--blue);font-size:20px">${fmt(avg.toFixed(2))}</div></div>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="card">
-          <div class="card-title" style="margin-bottom:12px">▸ Resumo por Status</div>
-          <table style="width:100%"><thead><tr><th>Status</th><th>Qtde</th><th>%</th></tr></thead><tbody>${statusRows}</tbody></table>
-        </div>
-        <div class="card">
-          <div class="card-title" style="margin-bottom:16px">🏆 Top 5 — Veículos que mais gastaram</div>
-          ${top5Html}
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-title" style="margin-bottom:14px">▸ Navegação Rápida</div>
-        <div class="home-nav-grid">
-          ${[
-            {p:'os',i:'📋',l:'Ordens de Serviço'},
-            {p:'diagnostico',i:'🩺',l:'Diagnóstico Oficina'},
-            {p:'pecasOS',i:'🔩',l:'Peças'},
-            {p:'cotacoes',i:'💰',l:'Cotações'},
-            {p:'aprovacoes',i:'✅',l:'Aprovações'},
-            {p:'manutencoes',i:'🔧',l:'Manutenções'},
-            {p:'historico',i:'📂',l:'Histórico'},
-            {p:'oficinas',i:'🏭',l:'Oficinas'},
-            {p:'veiculos',i:'🚙',l:'Veículos'},
-            {p:'fornecedores',i:'🏪',l:'Fornecedores'},
-          ].map(n=>`<div class="home-nav-item" onclick="go('${n.p}')"><div class="nav-icon">${n.i}</div><div class="nav-label">${n.l}</div></div>`).join('')}
-        </div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-title" style="margin-bottom:16px">🏆 Top 5 — Veículos que mais gastaram</div>
+        ${top5Html}
       </div>
     </div>`;
 }
@@ -338,7 +339,7 @@ function renderOS(){
       <td><div class="action-btns">
         <button class="btn btn-sm btn-outline" onclick="editOS(${o.id})" title="Dados Gerais">✏️</button>
         ${(o.status==='Aberta'||o.status==='Diagnóstico / Oficina')?`<button class="btn btn-sm btn-outline" onclick="window._diagOpenOS.add('${o.num}');go('diagnostico')" title="Diagnóstico Oficina">🩺</button>`:''}
-        ${o.status!=='Cancelada'?`<button class="btn btn-sm btn-outline" onclick="window._pecasOpenOS.add('${o.num}');go('pecasOS')" title="Peças">🔩</button>`:''}
+        ${(o.status!=='Cancelada'&&o.status!=='Reprovada')?`<button class="btn btn-sm btn-outline" onclick="window._pecasOpenOS.add('${o.num}');go('pecasOS')" title="Peças">🔩</button>`:''}
         <button class="btn btn-sm btn-danger" onclick="delOS(${o.id})">🗑</button>
       </div></td>
     </tr>`).join('');
@@ -369,7 +370,7 @@ function novaOS(){
         <div class="form-group"><label>Motorista</label><input id="os-motorista" readonly placeholder="Preenchimento automático"/></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>KM Atual *</label><input type="number" id="os-km"/></div>
+        <div class="form-group"><label>KM Atual *</label><input type="text" inputmode="numeric" class="km-input" id="os-km" placeholder="0"/></div>
       </div>
       <div class="form-group"><label>Defeito Relatado pelo motorista *</label><textarea id="os-problema" rows="3"></textarea></div>
       <div class="modal-actions">
@@ -399,7 +400,7 @@ async function saveOS(){
     data:document.getElementById('os-data').value,
     placa, modelo:v.modelo||document.getElementById('os-modelo').value,
     motorista:v.motorista||document.getElementById('os-motorista').value,
-    km:+document.getElementById('os-km').value||0,
+    km:parseKm(document.getElementById('os-km').value),
     problema:document.getElementById('os-problema').value.toUpperCase(),
     defeitoMecanico:'',
     solucao:'',
@@ -431,7 +432,7 @@ function editOS(id){
         <div class="form-group"><label>Veículo</label><input id="os-modelo-edit" value="${o.modelo}" readonly/></div>
         <div class="form-group"><label>Motorista</label><input id="os-motorista-edit" value="${o.motorista}" readonly/></div>
       </div>
-      <div class="form-group"><label>KM Atual</label><input type="number" id="os-km-edit" value="${o.km}"/></div>
+      <div class="form-group"><label>KM Atual</label><input type="text" inputmode="numeric" class="km-input" id="os-km-edit" value="${kmIn(o.km)}"/></div>
       <div class="form-group"><label>Defeito Relatado pelo motorista</label><textarea id="os-problema-edit" rows="3">${o.problema}</textarea></div>
       <div class="modal-actions">
         <button class="btn btn-outline" onclick="confirmCloseModal()">Cancelar</button>
@@ -449,7 +450,7 @@ async function updateOS(){
     placa, modelo:v.modelo||document.getElementById('os-modelo-edit').value,
     motorista:v.motorista||document.getElementById('os-motorista-edit').value,
     data:document.getElementById('os-data-edit').value,
-    km:+document.getElementById('os-km-edit').value||0,
+    km:parseKm(document.getElementById('os-km-edit').value),
     problema:document.getElementById('os-problema-edit').value.toUpperCase()
   };
   await window._fb.save(window._fb.cols.os, updated);
@@ -561,7 +562,7 @@ function renderDiagnosticoOficina(){
     const isOpen=window._diagOpenOS.has(o.num);
     const pecasCount=(o.pecas||[]).length;
     return `<div class="card" style="margin-bottom:12px">
-      <div onclick="toggleDiagOS('${o.num}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div onclick="toggleDiagOS('${o.num}')" class="card-toggle-header" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         <div style="display:flex;align-items:center;gap:10px">
           <span id="diag-icon-${o.num}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
           <strong>${o.placa}</strong>
@@ -598,19 +599,65 @@ function togglePecasOS(osNum){
   const icon=document.getElementById('pc-icon-'+osNum);
   if(icon)icon.textContent=isOpen?'▶':'▼';
 }
+// ─── FOTO DA PEÇA (compressão + visualização) ─────────────────────────────────
+function compressImageFile(file, maxDim=900, quality=0.7){
+  return new Promise((resolve,reject)=>{
+    if(!file.type||!file.type.startsWith('image/')){reject(new Error('Selecione um arquivo de imagem.'));return}
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        let {width,height}=img;
+        if(width>maxDim||height>maxDim){
+          if(width>height){height=Math.round(height*maxDim/width);width=maxDim;}
+          else{width=Math.round(width*maxDim/height);height=maxDim;}
+        }
+        const canvas=document.createElement('canvas');
+        canvas.width=width;canvas.height=height;
+        canvas.getContext('2d').drawImage(img,0,0,width,height);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      };
+      img.onerror=()=>reject(new Error('Não foi possível processar a imagem.'));
+      img.src=reader.result;
+    };
+    reader.onerror=()=>reject(new Error('Não foi possível ler o arquivo.'));
+    reader.readAsDataURL(file);
+  });
+}
+function viewFotoPeca(foto,desc){
+  if(!foto)return;
+  openModal(`<div class="modal-overlay" onclick="if(event.target===this)confirmCloseModal()">
+    <div class="modal" style="max-width:520px;text-align:center">
+      <div class="modal-header"><div class="modal-title">🔩 ${desc||'Foto da peça'}</div><button class="btn btn-ghost" onclick="confirmCloseModal()">✕</button></div>
+      <img src="${foto}" style="max-width:100%;border-radius:10px;margin-bottom:16px"/>
+      <div class="modal-actions" style="justify-content:center">
+        <a class="btn btn-primary" href="${foto}" download="peca.jpg">⬇️ Baixar</a>
+        <button class="btn btn-outline" onclick="confirmCloseModal()">Fechar</button>
+      </div>
+    </div></div>`);
+}
 function renderPecaRowsOS(o, readOnly){
   const pecas=o.pecas||[];
   if(!pecas.length) return '<div class="empty-state" style="padding:12px;font-size:12px">Nenhuma peça adicionada</div>';
-  return pecas.map(p=>`
-    <div class="form-row" style="align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px">
-      ${p.foto?`<img src="${p.foto}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex:none"/>`:'<div style="width:44px;height:44px;border-radius:6px;background:var(--gray-light);flex:none;display:flex;align-items:center;justify-content:center;font-size:18px">🔩</div>'}
+  return pecas.map(p=>{
+    const descAttr=(p.desc||'').replace(/'/g,"\\'");
+    const fotoHtml=p.foto
+      ?`<div style="position:relative;flex:none">
+          <img src="${p.foto}" onclick="viewFotoPeca('${p.foto}','${descAttr}')" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer" title="Clique para ver/baixar"/>
+          ${readOnly?'':`<button type="button" onclick="removeFotoPecaOS('${o.num}','${p.id}')" title="Remover foto" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:10px;line-height:1;cursor:pointer">✕</button>`}
+        </div>`
+      :'<div style="width:44px;height:44px;border-radius:6px;background:var(--gray-light);flex:none;display:flex;align-items:center;justify-content:center;font-size:18px">🔩</div>';
+    return `
+    <div style="display:flex;gap:14px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px">
+      ${fotoHtml}
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px">${p.qtde}x ${p.desc}</div>
         <div style="font-size:12px;color:var(--gray)">${[p.marca&&('Marca: '+p.marca),p.ref&&('Ref.: '+p.ref)].filter(Boolean).join(' · ')||'—'}</div>
         ${p.obs?`<div style="font-size:12px;color:var(--gray)">Obs.: ${p.obs}</div>`:''}
       </div>
       ${readOnly?'':`<button type="button" class="btn btn-sm btn-danger" onclick="removePecaOS('${o.num}','${p.id}')">🗑</button>`}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 async function addPecaOS(osNum){
   const o=state.os.find(x=>x.num===osNum);
@@ -631,15 +678,25 @@ async function addPecaOS(osNum){
     await window._fb.save(window._fb.cols.os, {...o, pecas});
   };
   if(file){
-    const reader=new FileReader();
-    reader.onload=()=>push(reader.result);
-    reader.readAsDataURL(file);
+    try{
+      const foto=await compressImageFile(file);
+      await push(foto);
+    }catch(err){
+      alert('Erro ao processar a foto: '+err.message);
+    }
   } else await push('');
 }
 async function removePecaOS(osNum,pecaId){
   const o=state.os.find(x=>x.num===osNum);
   if(!o)return;
   const pecas=(o.pecas||[]).filter(p=>String(p.id)!==String(pecaId));
+  window._pecasOpenOS.add(osNum);
+  await window._fb.save(window._fb.cols.os, {...o, pecas});
+}
+async function removeFotoPecaOS(osNum,pecaId){
+  const o=state.os.find(x=>x.num===osNum);
+  if(!o)return;
+  const pecas=(o.pecas||[]).map(p=>String(p.id)===String(pecaId)?{...p,foto:''}:p);
   window._pecasOpenOS.add(osNum);
   await window._fb.save(window._fb.cols.os, {...o, pecas});
 }
@@ -651,12 +708,12 @@ function toggleDispensaPecaOS(osNum){
   if(o){ window._pecasOpenOS.add(osNum); window._fb.save(window._fb.cols.os, {...o, dispensaPeca:cb.checked}); }
 }
 function renderPecasOS(){
-  const osList=state.os.filter(o=>o.status!=='Cancelada'&&o.status!=='Concluída').slice().sort((a,b)=>(b.num||'').localeCompare(a.num||''));
+  const osList=state.os.filter(o=>o.status!=='Cancelada'&&o.status!=='Concluída'&&o.status!=='Reprovada').slice().sort((a,b)=>(b.num||'').localeCompare(a.num||''));
   const cards=osList.map(o=>{
     const isOpen=window._pecasOpenOS.has(o.num);
     const pecas=o.pecas||[];
     return `<div class="card" style="margin-bottom:12px">
-      <div onclick="togglePecasOS('${o.num}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div onclick="togglePecasOS('${o.num}')" class="card-toggle-header" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         <div style="display:flex;align-items:center;gap:10px">
           <span id="pc-icon-${o.num}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
           <strong>${o.num}</strong>
@@ -792,30 +849,70 @@ async function delVeiculo(id){if(!confirm('Remover veículo?'))return;await wind
 
 // ─── COTAÇÕES ────────────────────────────────────────────────────────────────
 function calcTotalCotacao(c){
-  const subtotal=Object.values(c.precos||{}).reduce((a,v)=>a+(+v||0),0);
+  const pecas=pecasDaOSCotacao(c.os);
+  const subtotal=pecas.reduce((a,p)=>{
+    const unit=(c.precos&&c.precos[p.id]!=null)?+c.precos[p.id]:0;
+    return a+unit*(+p.qtde||1);
+  },0);
   const descVal=subtotal*(+c.desconto||0)/100;
   return {subtotal, descVal, total:subtotal-descVal};
 }
 // OS que já têm cotação lançada e ainda aguardam decisão de aprovação (nem aprovada, nem reprovada)
+// true se a parte "peças" da OS já está resolvida (dispensada ou com cotação aprovada)
+function osPecaAprovada(osNum){
+  const o=state.os.find(x=>x.num===osNum);
+  if(o&&o.dispensaPeca) return true;
+  const cotsOS=state.cotacoes.filter(c=>c.os===osNum);
+  if(!cotsOS.length) return false;
+  return cotsOS.some(c=>{
+    const a=state.aprovacoes.find(x=>x.cotacaoId===c.id);
+    return a&&a.status==='Aprovada';
+  });
+}
+// true se a mão de obra desta OS já foi aprovada
+function osMOAprovada(osNum){
+  return state.aprovacoes.some(a=>a.os===osNum&&a.tipo==='mo'&&a.status==='Aprovada');
+}
+// true se a M.O. desta OS já teve uma decisão (aprovada ou reprovada)
+function osMODecidida(osNum){
+  return state.aprovacoes.some(a=>a.os===osNum&&a.tipo==='mo'&&(a.status==='Aprovada'||a.status==='Reprovada'));
+}
+// true se a OS já tem laudo (oficina/defeito/solução) preenchido e a M.O. ainda não foi decidida
+function osPrecisaAprovarMO(o){
+  if(!o) return false;
+  const laudoPreenchido=!!(o.oficina&&o.defeitoMecanico&&o.solucao);
+  if(!laudoPreenchido) return false;
+  return !osMODecidida(o.num);
+}
+const STATUS_OS_ENCERRADOS=['Execução','Concluída','Cancelada','Reprovada'];
 function getOSNumsAguardandoAprovacao(){
+  const nums=new Set();
+  // OS com cotação de peças lançada e ainda sem decisão definitiva (aprovada ou 100% reprovada)
   const osComCot=[...new Set(state.cotacoes.map(c=>c.os))];
-  return osComCot.filter(osNum=>{
+  osComCot.forEach(osNum=>{
+    const o=state.os.find(x=>x.num===osNum);
+    if(!o||STATUS_OS_ENCERRADOS.includes(o.status)) return;
     const cotsOS=state.cotacoes.filter(c=>c.os===osNum);
     const aprovsOS=state.aprovacoes.filter(a=>a.os===osNum&&a.cotacaoId);
     const cotAprovada=cotsOS.find(c=>{
       const a=aprovsOS.find(x=>x.cotacaoId===c.id);
       return a&&a.status==='Aprovada';
     });
-    if(cotAprovada) return false;
-    if(cotsOS.length && cotsOS.every(c=>{const a=aprovsOS.find(x=>x.cotacaoId===c.id);return a&&a.status==='Reprovada';})) return false;
-    return true;
+    const todasReprovadas=cotsOS.length && cotsOS.every(c=>{const a=aprovsOS.find(x=>x.cotacaoId===c.id);return a&&a.status==='Reprovada';});
+    if(!cotAprovada && !todasReprovadas) nums.add(osNum);
   });
+  // OS com laudo preenchido (peça dispensada ou não) cuja mão de obra ainda não foi aprovada
+  state.os.forEach(o=>{
+    if(STATUS_OS_ENCERRADOS.includes(o.status)) return;
+    if(osPrecisaAprovarMO(o)) nums.add(o.num);
+  });
+  return [...nums];
 }
 // OS com peças cadastradas (não dispensadas) que ainda não têm nenhuma cotação lançada
 function getOSNumsPendentesCotacao(){
   const osComCot=new Set(state.cotacoes.map(c=>c.os));
   return state.os
-    .filter(o=>o.status!=='Cancelada'&&o.status!=='Concluída')
+    .filter(o=>o.status!=='Cancelada'&&o.status!=='Concluída'&&o.status!=='Reprovada')
     .filter(o=>!o.dispensaPeca && (o.pecas||[]).length>0 && !osComCot.has(o.num))
     .map(o=>o.num);
 }
@@ -841,7 +938,7 @@ function updateCotacaoDesconto(cotId,value){
   window._fb.save(window._fb.cols.cotacoes, {...c, desconto:+value||0});
 }
 function renderCotacoes(){
-  const osAtivas=new Set(state.os.filter(o=>o.status!=='Concluída'&&o.status!=='Cancelada').map(o=>o.num));
+  const osAtivas=new Set(state.os.filter(o=>o.status!=='Concluída'&&o.status!=='Cancelada'&&o.status!=='Reprovada').map(o=>o.num));
   const osComCot=[...new Set(state.cotacoes.map(c=>c.os))].filter(osNum=>osAtivas.has(osNum));
   const todasOS=state.os.filter(o=>!o.dispensaPeca&&o.pecas&&o.pecas.length&&osAtivas.has(o.num)).map(o=>o.num);
   const osOrdenadas=[...new Set([...todasOS,...osComCot])];
@@ -855,11 +952,16 @@ function renderCotacoes(){
 
     const fornCols=cotsOS.map(c=>`<th>${c.fornecedor||'—'} <button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="editCotacao(${c.id})">✏️</button><button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="delCotacao(${c.id})">🗑</button></th>`).join('');
     const pecaRows=pecas.map(p=>{
+      const descAttr=(p.desc||'').replace(/'/g,"\\'");
+      const fotoCell=p.foto
+        ?`<img src="${p.foto}" onclick="viewFotoPeca('${p.foto}','${descAttr}')" style="width:36px;height:36px;object-fit:cover;border-radius:6px;cursor:pointer" title="Clique para ver/baixar"/>`
+        :'—';
       const cells=cotsOS.map(c=>{
         const val=(c.precos&&c.precos[p.id]!=null)?c.precos[p.id]:'';
-        return `<td><input type="text" inputmode="decimal" class="money-input" value="${moneyIn(val)}" style="width:110px" placeholder="R$ 0,00" onchange="updateCotacaoPreco(${c.id},'${p.id}',this.value)"/></td>`;
+        const lineTotal=val!==''?(+val)*(+p.qtde||1):0;
+        return `<td><input type="text" inputmode="decimal" class="money-input" value="${moneyIn(val)}" style="width:110px" placeholder="R$ 0,00 (unit.)" onchange="updateCotacaoPreco(${c.id},'${p.id}',this.value)"/>${val!==''?`<div style="font-size:11px;color:var(--gray);margin-top:2px">Total: ${fmt(lineTotal)}</div>`:''}</td>`;
       }).join('');
-      return `<tr><td>${p.desc}</td><td>${p.marca||'—'}</td><td>${p.qtde}</td>${cells}</tr>`;
+      return `<tr><td>${fotoCell}</td><td>${p.desc}</td><td>${p.marca||'—'}</td><td>${p.qtde}</td>${cells}</tr>`;
     }).join('');
     const totalCells=cotsOS.map(c=>`<td><strong>${fmt(calcTotalCotacao(c).subtotal)}</strong></td>`).join('');
     const descCells=cotsOS.map(c=>`<td><input type="number" step="0.1" min="0" max="100" value="${c.desconto||0}" style="width:70px" onchange="updateCotacaoDesconto(${c.id},this.value)"/>%</td>`).join('');
@@ -870,7 +972,7 @@ function renderCotacoes(){
     }).join('');
 
     return `<div class="card" style="margin-bottom:12px">
-      <div onclick="toggleCotacaoOS('${osNum}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div onclick="toggleCotacaoOS('${osNum}')" class="card-toggle-header" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         <div style="display:flex;align-items:center;gap:10px">
           <span id="cot-icon-${osNum}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
           <strong>${osNum}</strong>
@@ -886,8 +988,8 @@ function renderCotacoes(){
         ${!pecas.length?'<div style="text-align:center;padding:20px;color:var(--gray)">Esta OS não possui peças cadastradas.</div>'
         :!cotsOS.length?'<div style="text-align:center;padding:20px;color:var(--gray)">Nenhum fornecedor adicionado ainda.</div>'
         :`<div class="table-wrap"><table>
-          <thead><tr><th>Produto</th><th>Marca</th><th>Qntd</th>${fornCols}</tr></thead>
-          <tbody>${pecaRows}<tr style="background:var(--gray-light)"><td colspan="3"><strong>TOTAL</strong></td>${totalCells}</tr></tbody>
+          <thead><tr><th>Foto</th><th>Produto</th><th>Marca</th><th>Qntd</th>${fornCols}</tr></thead>
+          <tbody>${pecaRows}<tr style="background:var(--gray-light)"><td colspan="4"><strong>TOTAL</strong></td>${totalCells}</tr></tbody>
         </table></div>
         <div class="table-wrap" style="margin-top:10px"><table>
           <thead><tr><th></th>${cotsOS.map(c=>`<th>${c.fornecedor||'—'}</th>`).join('')}</tr></thead>
@@ -904,7 +1006,7 @@ function renderCotacoes(){
     <div class="topbar"><div><div class="page-title">💰 Cotações</div><div class="page-sub">Responsável: Bruna — Clique na OS para comparar fornecedores</div></div>
       <button class="btn btn-primary" onclick="novaCotacao()">+ Nova Cotação</button></div>
     <div class="content">
-      <div class="alert alert-blue">💡 A coluna em <strong>verde</strong> indica o fornecedor de menor valor total. Total = Subtotal das peças − Desconto.</div>
+      <div class="alert alert-blue">💡 Informe o <strong>valor unitário</strong> de cada peça — o sistema multiplica automaticamente pela quantidade. A coluna em <strong>verde</strong> indica o fornecedor de menor valor total. Total = Subtotal das peças − Desconto.</div>
       ${cards.length?cards.join(''):'<div class="card"><div class="empty-state"><div class="empty-icon">💰</div><p>Nenhuma OS com peças pendentes de cotação</p></div></div>'}
     </div>`;
 }
@@ -916,13 +1018,17 @@ function pecasDaOSCotacao(osNum){
 function renderCotPecasRef(osNum){
   const pecas=pecasDaOSCotacao(osNum);
   if(!pecas.length) return '<div class="empty-state" style="padding:8px;font-size:12px">Esta OS não possui peças cadastradas.</div>';
-  return `<div class="table-wrap"><table><thead><tr><th>Produto</th><th>Marca</th><th>Qntd</th></tr></thead><tbody>${pecas.map(p=>`<tr><td>${p.desc}</td><td>${p.marca||'—'}</td><td>${p.qtde}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>Foto</th><th>Produto</th><th>Marca</th><th>Qntd</th></tr></thead><tbody>${pecas.map(p=>{
+    const descAttr=(p.desc||'').replace(/'/g,"\\'");
+    const fotoCell=p.foto?`<img src="${p.foto}" onclick="viewFotoPeca('${p.foto}','${descAttr}')" style="width:36px;height:36px;object-fit:cover;border-radius:6px;cursor:pointer" title="Clique para ver/baixar"/>`:'—';
+    return `<tr><td>${fotoCell}</td><td>${p.desc}</td><td>${p.marca||'—'}</td><td>${p.qtde}</td></tr>`;
+  }).join('')}</tbody></table></div>`;
 }
 function renderCotPrecoInputs(osNum,prefix,precos){
   const pecas=pecasDaOSCotacao(osNum);
   if(!pecas.length) return '';
   return pecas.map(p=>`
-    <div class="form-group"><label>Valor — ${p.desc}${p.marca?' ('+p.marca+')':''} (Qtd ${p.qtde})</label><input type="text" inputmode="decimal" class="money-input" id="${prefix}${p.id}" value="${precos&&precos[p.id]!=null?moneyIn(precos[p.id]):''}" placeholder="R$ 0,00"/></div>`).join('');
+    <div class="form-group"><label>Valor Unitário — ${p.desc}${p.marca?' ('+p.marca+')':''} (Qtd ${p.qtde})</label><input type="text" inputmode="decimal" class="money-input" id="${prefix}${p.id}" value="${precos&&precos[p.id]!=null?moneyIn(precos[p.id]):''}" placeholder="R$ 0,00 por unidade"/></div>`).join('');
 }
 function onCotacaoOSChange(){
   const osNum=document.getElementById('c-os').value;
@@ -967,7 +1073,7 @@ function removeFornecedorTmp(i){
 }
 function novaCotacao(osPresel){
   window._cotFornTmp=[];
-  const osList=state.os.filter(o=>!o.dispensaPeca);
+  const osList=state.os.filter(o=>!o.dispensaPeca&&!STATUS_OS_ENCERRADOS.includes(o.status));
   const osAtual=osPresel||(osList[0]?osList[0].num:'');
   const osOptions=osList.map(o=>`<option value="${o.num}"${o.num===osAtual?' selected':''}>${o.num} — ${o.placa}</option>`).join('');
   const fornList=state.fornecedores.map(f=>`<option>${f.fantasia}</option>`).join('');
@@ -1068,7 +1174,7 @@ function renderAprovacoes(){
     <div class="topbar"><div><div class="page-title">✅ Aprovações</div><div class="page-sub">Até R$ 50 → Júlio · Acima de R$ 50 → Anselmo (senha requerida)</div></div></div>
     <div class="content">
       <div class="alert alert-amber">🔒 Aprovações acima de R$ 50,00 exigem autenticação de Anselmo.</div>
-      <div class="alert alert-blue">💡 A coluna em <strong>verde</strong> é a recomendada (menor valor total). Aprovar um fornecedor diferente pedirá confirmação. Ao aprovar um fornecedor, os demais da mesma OS ficam bloqueados.</div>
+      <div class="alert alert-blue">💡 A coluna em <strong>verde</strong> é a recomendada (menor valor total). Aprovar um fornecedor diferente pedirá confirmação. Ao aprovar um fornecedor, os demais da mesma OS ficam bloqueados. A <strong>Mão de Obra</strong> tem aprovação própria, separada da cotação de peças — a OS só vai para Execução quando ambas estiverem aprovadas.</div>
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
           <div class="form-group" style="margin:0;flex:1;min-width:140px">
@@ -1098,8 +1204,10 @@ function renderAprovacoesFiltro(){
     const pecas=(o&&o.pecas)||[];
     const cotsOS=state.cotacoes.filter(c=>c.os===osNum);
     let aprovsOS=state.aprovacoes.filter(a=>a.os===osNum&&a.cotacaoId);
+    const moAprov=state.aprovacoes.find(a=>a.os===osNum&&a.tipo==='mo');
 
     let cotsVisiveis=cotsOS;
+    let moVisivel=true;
     if(ini||fim){
       const osData=o?.data||'';
       cotsVisiveis=cotsVisiveis.filter(c=>{
@@ -1110,10 +1218,15 @@ function renderAprovacoesFiltro(){
         if(fim&&d>fim) return false;
         return true;
       });
+      const dMO=(moAprov&&moAprov.data)||osData;
+      if(dMO){
+        if(ini&&dMO<ini) moVisivel=false;
+        if(fim&&dMO>fim) moVisivel=false;
+      }
     }
 
-    // Se não sobrou nenhuma cotação visível para esta OS após os filtros, oculta o card
-    if((ini||fim) && !cotsVisiveis.length) return '';
+    // Se não sobrou nada visível (nem cotação, nem M.O.) para esta OS após os filtros, oculta o card
+    if((ini||fim) && !cotsVisiveis.length && !moVisivel) return '';
 
     const minValor=cotsOS.length?Math.min(...cotsOS.map(c=>calcTotalCotacao(c).total)):null;
 
@@ -1122,8 +1235,8 @@ function renderAprovacoesFiltro(){
     const fornCols=cotsVisiveis.map(c=>`<th>${c.fornecedor||'—'}</th>`).join('');
     const pecaRows=pecas.map(p=>{
       const cells=cotsVisiveis.map(c=>{
-        const val=(c.precos&&c.precos[p.id]!=null)?c.precos[p.id]:0;
-        return `<td>${fmt(val)}</td>`;
+        const unit=(c.precos&&c.precos[p.id]!=null)?+c.precos[p.id]:0;
+        return `<td>${fmt(unit*(+p.qtde||1))}</td>`;
       }).join('');
       return `<tr><td>${p.desc}</td><td>${p.marca||'—'}</td><td>${p.qtde}</td>${cells}</tr>`;
     }).join('');
@@ -1154,22 +1267,24 @@ function renderAprovacoesFiltro(){
       return `<td><div class="action-btns">${btns}</div></td>`;
     }).join('');
 
-    return `<div class="card" style="margin-bottom:12px">
-      <div onclick="toggleAprovOS('${osNum}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span id="ap-icon-${osNum}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
-          <strong>${osNum}</strong>
-          ${o?`<span style="font-size:12px;color:var(--gray)">${o.placa} · ${o.modelo||''}${o.oficina?' · Oficina: '+o.oficina:''}${o.mo?' · M.O.: '+fmt(o.mo):''}</span>`:''}
+    const moValor=+(o&&o.mo)||0;
+    const moStatus=moAprov?moAprov.status:'Aguardando Aprovação';
+    const moPodeAgir=moStatus==='Aguardando Aprovação';
+    const moBlockHtml=!moVisivel?'':`
+      <div style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--gray-light);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:0.5px">🔧 Mão de Obra</div>
+          <div style="font-size:18px;font-weight:700;color:var(--header)">${fmt(moValor)}</div>
         </div>
-        <div style="display:flex;align-items:center;gap:12px">
-          <span style="font-size:12px;color:var(--gray)">${cotsOS.length} cotação(ões)</span>
-          ${cotsOS.length?`<strong style="color:var(--green);font-size:13px">${fmt(minValor)} menor</strong>`:''}
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span class="badge ${getStatusBadge(moStatus)}">${moStatus}</span>
+          ${moPodeAgir?`<button class="btn btn-sm btn-success" onclick="tryApproveMO('${osNum}')">✅ Aprovar M.O.</button><button class="btn btn-sm btn-danger" onclick="reproveMO('${osNum}')">❌ Reprovar</button>`:''}
         </div>
-      </div>
-      <div id="ap-body-${osNum}" style="display:${isOpen?'block':'none'};margin-top:14px">
-        ${!pecas.length?'<div style="text-align:center;padding:20px;color:var(--gray)">Esta OS não possui peças cadastradas.</div>'
-        :!cotsVisiveis.length?'<div style="text-align:center;padding:20px;color:var(--gray)">Nenhuma cotação encontrada para os filtros aplicados</div>'
-        :`<div class="table-wrap"><table>
+      </div>`;
+    const pecasBlockHtml=!pecas.length
+      ?(o&&o.dispensaPeca?'<div class="empty-state" style="padding:12px;font-size:12px">Peça dispensada para esta OS</div>':'<div style="text-align:center;padding:20px;color:var(--gray)">Esta OS não possui peças cadastradas.</div>')
+      :!cotsVisiveis.length?'<div style="text-align:center;padding:20px;color:var(--gray)">Nenhuma cotação encontrada para os filtros aplicados</div>'
+      :`<div class="table-wrap"><table>
           <thead><tr><th>Produto</th><th>Marca</th><th>Qntd</th>${fornCols}</tr></thead>
           <tbody>${pecaRows}<tr style="background:var(--gray-light)"><td colspan="3"><strong>TOTAL</strong></td>${totalCells}</tr></tbody>
         </table></div>
@@ -1182,7 +1297,24 @@ function renderAprovacoesFiltro(){
             <tr><td>Status</td>${statusCells}</tr>
             <tr><td>Ações</td>${acaoCells}</tr>
           </tbody>
-        </table></div>`}
+        </table></div>`;
+
+    return `<div class="card" style="margin-bottom:12px">
+      <div onclick="toggleAprovOS('${osNum}')" class="card-toggle-header" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="ap-icon-${osNum}" style="font-size:12px;color:var(--gray)">${isOpen?'▼':'▶'}</span>
+          <strong>${osNum}</strong>
+          ${o?`<span style="font-size:12px;color:var(--gray)">${o.placa} · ${o.modelo||''}${o.oficina?' · Oficina: '+o.oficina:''}</span>`:''}
+          ${o&&o.dispensaPeca?'<span class="badge badge-gray">Peça dispensada</span>':''}
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:12px;color:var(--gray)">${cotsOS.length} cotação(ões)</span>
+          ${cotsOS.length?`<strong style="color:var(--green);font-size:13px">${fmt(minValor)} menor</strong>`:''}
+        </div>
+      </div>
+      <div id="ap-body-${osNum}" style="display:${isOpen?'block':'none'};margin-top:14px">
+        ${moBlockHtml}
+        ${pecasBlockHtml}
       </div>
     </div>`;
   }).filter(Boolean);
@@ -1260,8 +1392,56 @@ async function doApproveCotacao(osNum,cotacaoId,valor){
   };
   await window._fb.save(window._fb.cols.aprovacoes, obj);
 
-  const os=state.os.find(x=>x.num===osNum);
-  if(os){ await window._fb.save(window._fb.cols.os, {...os, status:'Execução'}); }
+  await checkAndAdvanceExecucao(osNum);
+}
+
+// A OS só avança para Execução quando peças (ou dispensa) E mão de obra estiverem aprovadas
+async function checkAndAdvanceExecucao(osNum){
+  const o=state.os.find(x=>x.num===osNum);
+  if(!o||o.status==='Execução'||o.status==='Concluída') return;
+  if(osPecaAprovada(osNum)&&osMOAprovada(osNum)){
+    await window._fb.save(window._fb.cols.os, {...o, status:'Execução'});
+  }
+}
+
+// ── Aprovação da Mão de Obra (separada da cotação de peças) ────────────────
+function tryApproveMO(osNum){
+  const o=state.os.find(x=>x.num===osNum);
+  if(!o)return;
+  const valor=+o.mo||0;
+  const fazer=()=>doApproveMO(osNum,valor);
+  if(valor>50){ showLock(fazer); } else { fazer(); }
+}
+async function doApproveMO(osNum,valor){
+  let aprov=state.aprovacoes.find(a=>a.os===osNum&&a.tipo==='mo');
+  const id=aprov?aprov.id:Date.now()+Math.floor(Math.random()*1000);
+  const obj={
+    id, os:osNum, tipo:'mo', valor,
+    aprovador: valor>50?'Anselmo':'Júlio',
+    status:'Aprovada',
+    data: today(),
+    autorizado: valor>50?'Anselmo':'Júlio',
+    obs: aprov?.obs||'Mão de obra'
+  };
+  await window._fb.save(window._fb.cols.aprovacoes, obj);
+  await checkAndAdvanceExecucao(osNum);
+}
+async function reproveMO(osNum){
+  const o=state.os.find(x=>x.num===osNum);
+  const valor=+(o&&o.mo)||0;
+  let aprov=state.aprovacoes.find(a=>a.os===osNum&&a.tipo==='mo');
+  const id=aprov?aprov.id:Date.now()+Math.floor(Math.random()*1000);
+  const obj={
+    id, os:osNum, tipo:'mo', valor,
+    aprovador: valor>50?'Anselmo':'Júlio',
+    status:'Reprovada',
+    data: today(),
+    autorizado: aprov?.autorizado||'',
+    obs: aprov?.obs||'Mão de obra'
+  };
+  await window._fb.save(window._fb.cols.aprovacoes, obj);
+  // Mão de obra reprovada reprova a OS inteira, retirando-a das demais seções
+  if(o) await window._fb.save(window._fb.cols.os, {...o, status:'Reprovada'});
 }
 
 async function reproveCotacao(osNum,cotacaoId){
@@ -1279,39 +1459,51 @@ async function reproveCotacao(osNum,cotacaoId){
     obs: aprov?.obs||(cot.fornecedor?`Cotação: ${cot.fornecedor}`:'')
   };
   await window._fb.save(window._fb.cols.aprovacoes, obj);
+
+  // Se todos os fornecedores desta OS já foram reprovados, a OS inteira é reprovada
+  const cotsOS=state.cotacoes.filter(c=>c.os===osNum);
+  const todasReprovadas=cotsOS.every(c=>{
+    if(c.id===cotacaoId) return true; // acabamos de reprovar esta agora mesmo
+    const a=state.aprovacoes.find(x=>x.cotacaoId===c.id);
+    return a&&a.status==='Reprovada';
+  });
+  if(todasReprovadas){
+    const o=state.os.find(x=>x.num===osNum);
+    if(o) await window._fb.save(window._fb.cols.os, {...o, status:'Reprovada'});
+  }
 }
 
-// ─── MANUTENÇÕES (gerado automaticamente a partir das Cotações aprovadas) ──
+// ─── MANUTENÇÕES (gerado automaticamente a partir de OS em Execução/Concluída) ──
 function getManutencoesGeradas(){
-  // Uma "manutenção" = uma cotação com aprovação status 'Aprovada'
-  return state.aprovacoes
-    .filter(a=>a.cotacaoId && a.status==='Aprovada')
-    .map(a=>{
-      const cot=state.cotacoes.find(c=>c.id===a.cotacaoId);
-      if(!cot) return null;
-      const o=state.os.find(x=>x.num===a.os);
-      const {total:vlrPecas}=calcTotalCotacao(cot);
-      const vlrMO=+(o?.mo)||0;
+  // Uma "manutenção" = uma OS que já chegou em Execução (peça aprovada/dispensada + M.O. aprovada) ou já foi Concluída
+  return state.os
+    .filter(o=>o.status==='Execução'||o.status==='Concluída')
+    .map(o=>{
+      const cot=state.cotacoes.find(c=>c.os===o.num && state.aprovacoes.some(a=>a.cotacaoId===c.id&&a.status==='Aprovada'));
+      const aprovCot=cot?state.aprovacoes.find(a=>a.cotacaoId===cot.id&&a.status==='Aprovada'):null;
+      const aprovMO=state.aprovacoes.find(a=>a.os===o.num&&a.tipo==='mo'&&a.status==='Aprovada');
+      const vlrPecas=cot?calcTotalCotacao(cot).total:0;
+      const vlrMO=+(o.mo)||0;
+      const cotacaoId=cot?cot.id:('mo-'+o.num);
       // solução editável manualmente; usa override salvo em state.manutDescs, senão vem da Solução cadastrada na OS
-      const override=state.manutDescs?.[a.cotacaoId];
-      const pecasResumo=o?.pecas?.length?o.pecas.map(p=>`${p.qtde}x ${p.desc}`).join(', '):'';
-      const desc=override!=null?override:(o?.solucao||pecasResumo||cot.obs||'—');
+      const override=state.manutDescs?.[cotacaoId];
+      const pecasResumo=o.pecas?.length?o.pecas.map(p=>`${p.qtde}x ${p.desc}`).join(', '):'';
+      const desc=override!=null?override:(o.solucao||pecasResumo||(cot&&cot.obs)||'—');
       return {
-        cotacaoId:a.cotacaoId,
-        os:a.os,
-        data:a.data,
-        oficina:o?.oficina||cot.fornecedor||'',
+        cotacaoId,
+        os:o.num,
+        data:(aprovCot&&aprovCot.data)||(aprovMO&&aprovMO.data)||o.data,
+        oficina:o.oficina||(cot&&cot.fornecedor)||'',
         desc,
         vlrPecas,
         vlrMO,
         total:vlrPecas+vlrMO,
-        nf:cot.obs||'—',
-        km:o?o.km:null,
-        placa:o?.placa||'',
-        status:o?.status||''
+        nf:(cot&&cot.obs)||'—',
+        km:o.km,
+        placa:o.placa,
+        status:o.status
       };
-    })
-    .filter(Boolean);
+    });
 }
 
 function renderManutVeiculosAndamento(){
@@ -1335,68 +1527,7 @@ function renderManutVeiculosAndamento(){
   return blocks;
 }
 function renderManutencoes(){
-  const linhasTodas=getManutencoesGeradas().filter(m=>m.status!=='Concluída');
-  const osOptions=[...new Set(linhasTodas.map(m=>m.os))].map(os=>`<option value="${os}">${os}</option>`).join('');
-  const placaOptions=[...new Set(linhasTodas.map(m=>m.placa).filter(Boolean))].map(p=>`<option value="${p}">${p}</option>`).join('');
-  return `
-    <div class="topbar"><div><div class="page-title">🔧 Manutenções</div><div class="page-sub">Responsável: Bruna — Gerado automaticamente a partir das cotações aprovadas</div></div></div>
-    <div class="content">
-      <div class="alert alert-blue">💡 Estas linhas vêm automaticamente das cotações aprovadas em ✅ Aprovações. Ao dar baixa, a OS sai desta lista e passa para o Histórico do veículo.</div>
-      ${renderManutVeiculosAndamento()}
-      <div class="card" style="margin-bottom:16px">
-        <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-          <div class="form-group" style="margin:0;flex:1;min-width:140px">
-            <label>OS #</label>
-            <select id="mn-f-os" onchange="renderManutencoesFiltro()">
-              <option value="">Todas</option>${osOptions}
-            </select>
-          </div>
-          <div class="form-group" style="margin:0;flex:1;min-width:140px">
-            <label>Veículo (Placa)</label>
-            <select id="mn-f-placa" onchange="renderManutencoesFiltro()">
-              <option value="">Todos</option>${placaOptions}
-            </select>
-          </div>
-          <div class="form-group" style="margin:0;flex:1;min-width:140px">
-            <label>Data início</label>
-            <input type="date" id="mn-f-ini" onchange="renderManutencoesFiltro()"/>
-          </div>
-          <div class="form-group" style="margin:0;flex:1;min-width:140px">
-            <label>Data fim</label>
-            <input type="date" id="mn-f-fim" onchange="renderManutencoesFiltro()"/>
-          </div>
-          <button class="btn btn-outline" style="margin-bottom:1px" onclick="limparFiltroManut()">✕ Limpar</button>
-        </div>
-      </div>
-      <div class="kpi-grid" style="margin-bottom:16px" id="mn-kpis"></div>
-      <div class="card">
-        <div class="table-wrap">
-          <table><thead><tr><th>OS #</th><th>Data</th><th>KM</th><th>Oficina</th><th>Solução</th><th>Vlr. Peças</th><th>Vlr. M.O.</th><th>Total</th><th>Ações</th></tr></thead>
-          <tbody id="mn-rows"></tbody></table>
-        </div>
-      </div>
-    </div>`;
-}
-
-function renderManutencoesFiltro(){
-  const osF=document.getElementById('mn-f-os')?.value||'';
-  const placaF=document.getElementById('mn-f-placa')?.value||'';
-  const ini=document.getElementById('mn-f-ini')?.value||'';
-  const fim=document.getElementById('mn-f-fim')?.value||'';
-
-  let linhas=getManutencoesGeradas().filter(m=>m.status!=='Concluída');
-  if(osF) linhas=linhas.filter(m=>m.os===osF);
-  if(placaF) linhas=linhas.filter(m=>m.placa===placaF);
-  if(ini||fim){
-    linhas=linhas.filter(m=>{
-      const d=m.data||'';
-      if(!d) return true;
-      if(ini&&d<ini) return false;
-      if(fim&&d>fim) return false;
-      return true;
-    });
-  }
-
+  const linhas=getManutencoesGeradas().filter(m=>m.status!=='Concluída');
   const rows=linhas.map(m=>`<tr>
       <td><strong>${m.os}</strong></td>
       <td>${fmtDate(m.data)}</td>
@@ -1411,25 +1542,18 @@ function renderManutencoesFiltro(){
         <button class="btn btn-sm btn-success" onclick="baixarOS('${m.os}')">✅ Baixar OS</button>
       </div></td>
     </tr>`).join('');
-
-  const totP=linhas.reduce((a,m)=>a+m.vlrPecas,0);
-  const totMO=linhas.reduce((a,m)=>a+m.vlrMO,0);
-  const kpis=document.getElementById('mn-kpis');
-  if(kpis) kpis.innerHTML=`
-    <div class="kpi"><div class="kpi-label">Total Peças</div><div class="kpi-val" style="color:var(--blue);font-size:18px">${fmt(totP)}</div></div>
-    <div class="kpi"><div class="kpi-label">Total M.O.</div><div class="kpi-val" style="color:var(--purple);font-size:18px">${fmt(totMO)}</div></div>
-    <div class="kpi"><div class="kpi-label">Total Geral</div><div class="kpi-val" style="color:var(--green);font-size:18px">${fmt(totP+totMO)}</div></div>`;
-
-  const tbody=document.getElementById('mn-rows');
-  if(tbody) tbody.innerHTML=rows||'<tr><td colspan="9" style="text-align:center;padding:24px;color:#64748B">Nenhuma OS pendente encontrada</td></tr>';
-}
-
-function limparFiltroManut(){
-  const os=document.getElementById('mn-f-os');if(os)os.value='';
-  const placa=document.getElementById('mn-f-placa');if(placa)placa.value='';
-  const ini=document.getElementById('mn-f-ini');if(ini)ini.value='';
-  const fim=document.getElementById('mn-f-fim');if(fim)fim.value='';
-  renderManutencoesFiltro();
+  return `
+    <div class="topbar"><div><div class="page-title">🔧 Manutenções</div><div class="page-sub">Responsável: Bruna — Gerado automaticamente a partir das OS em execução</div></div></div>
+    <div class="content">
+      <div class="alert alert-blue">💡 Estas linhas vêm automaticamente das OS aprovadas em ✅ Aprovações (peças e mão de obra). Ao dar baixa, a OS sai desta lista e passa para o Histórico do veículo.</div>
+      ${renderManutVeiculosAndamento()}
+      <div class="card">
+        <div class="table-wrap">
+          <table><thead><tr><th>OS #</th><th>Data</th><th>KM</th><th>Oficina</th><th>Solução</th><th>Vlr. Peças</th><th>Vlr. M.O.</th><th>Total</th><th>Ações</th></tr></thead>
+          <tbody>${rows||'<tr><td colspan="9" style="text-align:center;padding:24px;color:#64748B">Nenhuma OS em manutenção encontrada</td></tr>'}</tbody></table>
+        </div>
+      </div>
+    </div>`;
 }
 
 async function baixarOS(osNum){
@@ -1533,16 +1657,23 @@ async function delPeca(id){if(!confirm('Remover?'))return;await window._fb.del(w
 // ─── HISTÓRICO ───────────────────────────────────────────────────────────────
 function renderHistorico(){
   const placas=[...new Set(state.veiculos.map(v=>v.placa))];
-  const placaOpts=placas.map(p=>`<option>${p}</option>`).join('');
+  const placaChecks=placas.map(p=>`
+            <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:400;margin:0;cursor:pointer">
+              <input type="checkbox" class="hist-placa-cb" value="${p}" onchange="toggleHistPlaca(this)"/> ${p}
+            </label>`).join('');
   return `
     <div class="topbar"><div><div class="page-title">📂 Histórico</div><div class="page-sub">Todas as OS — filtre por período e placa</div></div></div>
     <div class="content">
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-          <div><label style="display:block;font-size:12px;font-weight:600;color:var(--header);margin-bottom:5px">🔍 Placa</label>
-            <select id="hist-placa" onchange="renderHistoricoResult()" style="min-width:160px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
-              <option value="">Todas as placas</option>${placaOpts}
-            </select>
+          <div>
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--header);margin-bottom:5px">🔍 Placa(s)</label>
+            <div style="display:flex;flex-wrap:wrap;gap:6px 14px;border:1px solid var(--border);border-radius:8px;padding:8px 12px;max-width:360px">
+              <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;margin:0;cursor:pointer">
+                <input type="checkbox" id="hist-placa-todas" onchange="toggleHistTodas(this)"/> Todas
+              </label>
+              ${placaChecks}
+            </div>
           </div>
           <div><label style="display:block;font-size:12px;font-weight:600;color:var(--header);margin-bottom:5px">De</label>
             <input type="date" id="hist-data-ini" onchange="renderHistoricoResult()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px"/>
@@ -1558,20 +1689,37 @@ function renderHistorico(){
       <div id="hist-result"></div>
     </div>`;
 }
+function toggleHistTodas(cb){
+  if(cb.checked){
+    document.querySelectorAll('.hist-placa-cb').forEach(el=>{el.checked=false});
+  }
+  renderHistoricoResult();
+}
+function toggleHistPlaca(cb){
+  if(cb.checked){
+    const todas=document.getElementById('hist-placa-todas');
+    if(todas) todas.checked=false;
+  }
+  renderHistoricoResult();
+}
+function getHistPlacasSelecionadas(){
+  return Array.from(document.querySelectorAll('.hist-placa-cb:checked')).map(el=>el.value);
+}
 function limparFiltrosHistorico(){
-  document.getElementById('hist-placa').value='';
+  const todas=document.getElementById('hist-placa-todas'); if(todas) todas.checked=false;
+  document.querySelectorAll('.hist-placa-cb').forEach(el=>{el.checked=false});
   document.getElementById('hist-data-ini').value='';
   document.getElementById('hist-data-fim').value='';
   renderHistoricoResult();
 }
 function getHistoricoFiltrado(){
-  const placa=document.getElementById('hist-placa')?.value||'';
+  const placas=getHistPlacasSelecionadas();
   const dataIni=document.getElementById('hist-data-ini')?.value||'';
   const dataFim=document.getElementById('hist-data-fim')?.value||'';
   const geradas=getManutencoesGeradas();
   const osFiltradas=state.os
     .filter(o=>{
-      if(placa&&o.placa!==placa)return false;
+      if(placas.length&&!placas.includes(o.placa))return false;
       if(dataIni&&o.data<dataIni)return false;
       if(dataFim&&o.data>dataFim)return false;
       return true;
@@ -1583,6 +1731,14 @@ function getHistoricoFiltrado(){
 function renderHistoricoResult(){
   const div=document.getElementById('hist-result');
   if(!div)return;
+  const todasSelecionada=document.getElementById('hist-placa-todas')?.checked||false;
+  const placas=getHistPlacasSelecionadas();
+  const dataIni=document.getElementById('hist-data-ini')?.value||'';
+  const dataFim=document.getElementById('hist-data-fim')?.value||'';
+  if(!todasSelecionada&&!placas.length&&!dataIni&&!dataFim){
+    div.innerHTML='<div class="card"><div class="empty-state"><div class="empty-icon">🔍</div><p>Selecione ao menos uma placa (ou "Todas") ou um período para visualizar as OS do histórico</p></div></div>';
+    return;
+  }
   const itens=getHistoricoFiltrado();
   const totalGasto=itens.reduce((a,{m})=>a+(m?m.total:0),0);
   const veiculosDistintos=new Set(itens.map(({o})=>o.placa)).size;
@@ -1635,10 +1791,10 @@ function exportHistoricoExcel(){
   const ws=XLSX.utils.json_to_sheet(data);
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Histórico');
-  const placa=document.getElementById('hist-placa')?.value||'';
+  const placas=getHistPlacasSelecionadas();
   const dataIni=document.getElementById('hist-data-ini')?.value||'';
   const dataFim=document.getElementById('hist-data-fim')?.value||'';
-  const partes=['historico', placa||'todas-placas'];
+  const partes=['historico', placas.length?placas.join('-'):'todas-placas'];
   if(dataIni||dataFim) partes.push(`${dataIni||'inicio'}_a_${dataFim||'hoje'}`);
   XLSX.writeFile(wb, partes.join('_')+'.xlsx');
 }
@@ -1864,10 +2020,10 @@ function renderDashboard(){
     const pct=Math.round((gasto/maxGasto)*100);
     return `<div class="top5-item">
       <div class="top5-rank ${rankClasses[i]}">${i+1}</div>
-      <div style="flex:1">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div><strong>${placa}</strong> <span style="font-size:12px;color:var(--gray)">${v.modelo||''}</span></div>
-          <strong style="color:var(--green)">${fmt(gasto)}</strong>
+      <div style="flex:1;min-width:0">
+        <div class="top5-row">
+          <div class="top5-name"><strong>${placa}</strong> <span style="font-size:12px;color:var(--gray)">${v.modelo||''}</span></div>
+          <strong class="top5-value" style="color:var(--green)">${fmt(gasto)}</strong>
         </div>
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
       </div>
@@ -1905,7 +2061,7 @@ function renderDashboard(){
           <div class="kpi"><div class="kpi-label">🔺 Maior OS</div><div class="kpi-val" style="color:var(--amber);font-size:18px">${fmt(maiorOS)}</div></div>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="grid-2col" style="margin-bottom:16px">
         <div class="card">
           <div class="card-title" style="margin-bottom:12px">▸ Resumo por Status</div>
           <table style="width:100%"><thead><tr><th>Status</th><th>Qtde</th><th>%</th></tr></thead><tbody>${statusRows}</tbody></table>
@@ -1934,12 +2090,12 @@ function render(){
     cotacoes:renderCotacoes, aprovacoes:renderAprovacoes,
     manutencoes:renderManutencoes, pecas:renderPecas,
     historico:renderHistorico, oficinas:renderOficinas,
-    fornecedores:renderFornecedores, dashboard:renderDashboard
+    fornecedores:renderFornecedores, dashboard:renderDashboard,
+    financeiro:renderFinanceiro
   };
   const fn=pages[state.page]||renderHome;
   document.getElementById('main-content').innerHTML=fn();
   if(state.page==='aprovacoes') renderAprovacoesFiltro();
-  if(state.page==='manutencoes') renderManutencoesFiltro();
   if(state.page==='historico') renderHistoricoResult();
   document.querySelectorAll('.nav-item').forEach(el=>{
     el.classList.toggle('active',el.dataset.page===state.page);
