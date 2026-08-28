@@ -1,8 +1,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {
-  getFirestore, collection, doc,
-  getDocs, setDoc, deleteDoc, onSnapshot, getDoc
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc, setDoc, deleteDoc, onSnapshot, getDoc, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import {
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 // ─── FIREBASE CONFIG ─────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -16,7 +19,20 @@ const firebaseConfig = {
 };
 
 const firebaseApp = initializeApp(firebaseConfig);
-const db = getFirestore(firebaseApp);
+
+// Cache local persistente: enquanto offline, leituras servem do cache e escritas
+// ficam numa fila local, sendo enviadas automaticamente quando a conexão volta.
+let db;
+try {
+  db = initializeFirestore(firebaseApp, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+} catch (e) {
+  console.warn('Cache offline do Firestore indisponível (navegador/aba sem suporte), seguindo sem fila offline:', e);
+  db = getFirestore(firebaseApp);
+}
+
+const auth = getAuth(firebaseApp);
 
 // ─── COLLECTIONS ─────────────────────────────────────────────────────────────
 const COLS = {
@@ -58,24 +74,113 @@ function fbStatus(msg, type='sync') {
   if(type==='ok') setTimeout(()=>el.classList.remove('show'), 2500);
 }
 
-// ─── FIRESTORE HELPERS ───────────────────────────────────────────────────────
-async function fbLoad(colName) {
-  const snap = await getDocs(collection(db, colName));
-  return snap.docs.map(d => ({ ...d.data(), _fbId: d.id }));
+// ─── ATRIBUIÇÃO DE USUÁRIO (para os registros de quem criou/editou o quê) ─────
+function getUserName() {
+  return (auth.currentUser && auth.currentUser.email) || 'Desconhecido';
 }
 
+// ─── LOGIN ─────────────────────────────────────────────────────────────────
+function showLoginScreen(errorMsg) {
+  document.getElementById('loading-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-root').innerHTML = `
+    <div class="lock-overlay">
+      <div class="lock-box">
+        <div class="lock-icon">🚗</div>
+        <div class="lock-title">STAYNET</div>
+        <div class="lock-sub">Entre com seu e-mail e senha para acessar o sistema.</div>
+        <div class="form-group"><input type="email" id="login-email" placeholder="E-mail" autofocus/></div>
+        <div class="form-group"><input type="password" id="login-pass" placeholder="Senha" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin()}"/></div>
+        <div id="login-err" style="color:#DC2626;font-size:12px;margin-bottom:8px;${errorMsg ? '' : 'display:none'}">${errorMsg || ''}</div>
+        <div style="display:flex;gap:8px;justify-content:center">
+          <button class="btn btn-primary" onclick="doLogin()">Entrar</button>
+        </div>
+      </div>
+    </div>`;
+  setTimeout(() => { const i = document.getElementById('login-email'); if(i) i.focus(); }, 100);
+}
+
+function hideLoginScreen() {
+  document.getElementById('login-root').innerHTML = '';
+}
+
+window.doLogin = async function() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const btn = document.querySelector('#login-root .btn-primary');
+  if(btn) btn.disabled = true;
+  try {
+    await signInWithEmailAndPassword(auth, email, pass);
+  } catch(e) {
+    console.error('Login error:', e);
+    showLoginScreen('E-mail ou senha inválidos.');
+  }
+};
+
+onAuthStateChanged(auth, user => {
+  if(user) {
+    hideLoginScreen();
+    document.getElementById('loading-screen').style.display = 'flex';
+    loadAllData();
+  } else {
+    teardownListeners();
+    window.state._loaded = false;
+    window.state.veiculos = []; window.state.os = []; window.state.cotacoes = [];
+    window.state.aprovacoes = []; window.state.manutencoes = []; window.state.pecas = [];
+    window.state.oficinas = []; window.state.fornecedores = [];
+    showLoginScreen();
+  }
+});
+
+// ─── FIRESTORE HELPERS ───────────────────────────────────────────────────────
 async function fbSave(colName, obj) {
   fbStatus('Salvando...', 'sync');
   try {
     const id = String(obj.id || obj._fbId || Date.now());
+    const ref = doc(db, colName, id);
+    const expectedUpdatedAt = obj._updatedAt;
     const data = { ...obj };
     delete data._fbId;
+    delete data._updatedAt;
     Object.keys(data).forEach(k => { if(data[k] === undefined) delete data[k]; });
-    await setDoc(doc(db, colName, id), data);
+
+    const user = getUserName();
+    const now = Date.now();
+
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      if(snap.exists()) {
+        const current = snap.data();
+        // Se o registro mudou no servidor desde que este usuário o carregou,
+        // não sobrescreve silenciosamente — avisa em vez de perder a mudança alheia.
+        if(expectedUpdatedAt && current._updatedAt && current._updatedAt !== expectedUpdatedAt) {
+          const err = new Error('CONFLICT');
+          err.code = 'CONFLICT';
+          err.who = current._updatedBy;
+          throw err;
+        }
+        data._createdBy = current._createdBy || user;
+        data._createdAt = current._createdAt || now;
+      } else {
+        data._createdBy = user;
+        data._createdAt = now;
+      }
+      data._updatedBy = user;
+      data._updatedAt = now;
+      tx.set(ref, data);
+    });
+
     fbStatus('Salvo ✓', 'ok');
+    return true;
   } catch(e) {
-    fbStatus('Erro ao salvar', 'error');
-    console.error(e);
+    if(e.code === 'CONFLICT') {
+      fbStatus('Conflito de edição', 'error');
+      alert(`Este registro foi alterado por ${e.who || 'outra pessoa'} enquanto você editava.\n\nRecarregue a página para ver a versão mais recente antes de salvar de novo — senão a mudança dela será perdida.`);
+    } else {
+      fbStatus('Erro ao salvar', 'error');
+      console.error(e);
+    }
+    return false;
   }
 }
 
@@ -100,54 +205,31 @@ async function fbGetMeta(key, defaultVal) {
   return defaultVal;
 }
 
+// Lê e incrementa o contador de OS numa transação atômica, evitando que duas
+// pessoas criando uma OS ao mesmo tempo recebam o mesmo número.
+async function fbNextOsNumber() {
+  const ref = doc(db, COLS.meta, 'osCounter');
+  const next = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const current = snap.exists() ? (Number(snap.data().value) || 1) : 1;
+    tx.set(ref, { value: current + 1 });
+    return current;
+  });
+  window.state.osCounter = next + 1;
+  return next;
+}
+
 // ─── LOAD ALL DATA ────────────────────────────────────────────────────────────
+// Os dados iniciais vêm do primeiro disparo de cada onSnapshot (setupListeners),
+// em vez de um getDocs seguido de um onSnapshot — isso evita ler cada coleção
+// duas vezes do Firestore a cada carregamento de página.
 async function loadAllData() {
   try {
     fbStatus('Carregando dados...', 'sync');
 
-    const [veiculos, os, cotacoes, aprovacoes, manutencoes, pecas, oficinas, fornecedores, osCounter] = await Promise.all([
-      fbLoad(COLS.veiculos),
-      fbLoad(COLS.os),
-      fbLoad(COLS.cotacoes),
-      fbLoad(COLS.aprovacoes),
-      fbLoad(COLS.manutencoes),
-      fbLoad(COLS.pecas),
-      fbLoad(COLS.oficinas),
-      fbLoad(COLS.fornecedores),
-      fbGetMeta('osCounter', 1)
-    ]);
-
-    // Normalize numeric IDs
-    const norm = arr => arr.map(x => ({
-      ...x,
-      id: Number(x.id) || x.id,
-      km: x.km !== undefined ? Number(x.km) : undefined,
-      valor: x.valor !== undefined ? Number(x.valor) : undefined,
-      vlrPecas: x.vlrPecas !== undefined ? Number(x.vlrPecas) : undefined,
-      vlrMO: x.vlrMO !== undefined ? Number(x.vlrMO) : undefined,
-      vlrUnit: x.vlrUnit !== undefined ? Number(x.vlrUnit) : undefined,
-      qtde: x.qtde !== undefined ? Number(x.qtde) : undefined,
-    }));
-
-    window.state.veiculos = norm(veiculos);
-    window.state.os = norm(os);
-    window.state.cotacoes = norm(cotacoes);
-    window.state.aprovacoes = norm(aprovacoes);
-    window.state.manutencoes = norm(manutencoes);
-    window.state.pecas = norm(pecas);
-    window.state.oficinas = norm(oficinas);
-    window.state.fornecedores = norm(fornecedores);
+    const osCounter = await fbGetMeta('osCounter', 1);
     window.state.osCounter = Number(osCounter);
-    window.state._loaded = true;
 
-    fbStatus('Conectado ✓', 'ok');
-
-    // Hide loading, show app
-    document.getElementById('loading-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'flex';
-    render();
-
-    // Start real-time listeners
     setupListeners();
 
   } catch(e) {
@@ -157,11 +239,38 @@ async function loadAllData() {
   }
 }
 
-// ─── REAL-TIME LISTENERS ──────────────────────────────────────────────────────
+// ─── REAL-TIME LISTENERS (também fazem a carga inicial) ──────────────────────
+let unsubscribers = [];
+
+function teardownListeners() {
+  unsubscribers.forEach(unsub => unsub());
+  unsubscribers = [];
+}
+
 function setupListeners() {
-  const watch = (colName, stateKey) => {
-    onSnapshot(collection(db, colName), snap => {
-      if(!window.state._loaded) return;
+  const watched = {
+    veiculos: COLS.veiculos,
+    os: COLS.os,
+    cotacoes: COLS.cotacoes,
+    aprovacoes: COLS.aprovacoes,
+    manutencoes: COLS.manutencoes,
+    pecas: COLS.pecas,
+    oficinas: COLS.oficinas,
+    fornecedores: COLS.fornecedores
+  };
+  const pending = new Set(Object.keys(watched));
+
+  const finishInitialLoad = () => {
+    if(window.state._loaded) return;
+    window.state._loaded = true;
+    fbStatus('Conectado ✓', 'ok');
+    document.getElementById('loading-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    render();
+  };
+
+  Object.entries(watched).forEach(([stateKey, colName]) => {
+    const unsub = onSnapshot(collection(db, colName), snap => {
       const items = snap.docs.map(d => {
         const data = d.data();
         return {
@@ -176,18 +285,19 @@ function setupListeners() {
         };
       });
       window.state[stateKey] = items;
-      render();
-    });
-  };
 
-  watch(COLS.veiculos, 'veiculos');
-  watch(COLS.os, 'os');
-  watch(COLS.cotacoes, 'cotacoes');
-  watch(COLS.aprovacoes, 'aprovacoes');
-  watch(COLS.manutencoes, 'manutencoes');
-  watch(COLS.pecas, 'pecas');
-  watch(COLS.oficinas, 'oficinas');
-  watch(COLS.fornecedores, 'fornecedores');
+      if(pending.has(stateKey)) {
+        pending.delete(stateKey);
+        if(pending.size === 0) finishInitialLoad();
+      } else if(window.state._loaded) {
+        render();
+      }
+    }, err => {
+      console.error('Firestore listener error:', colName, err);
+      fbStatus('Erro de conexão', 'error');
+    });
+    unsubscribers.push(unsub);
+  });
 }
 
 // ─── EXPOSED FIREBASE OPS (called from inline onclick handlers) ───────────────
@@ -195,8 +305,7 @@ window._fb = {
   save: fbSave,
   del: fbDelete,
   saveMeta: fbSaveMeta,
+  nextOsNumber: fbNextOsNumber,
+  logout: () => signOut(auth),
   cols: COLS
 };
-
-// Start loading
-loadAllData();

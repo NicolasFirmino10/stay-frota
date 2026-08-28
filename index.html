@@ -41,6 +41,8 @@
       <div class="nav-section">Consultas</div>
       <div class="nav-item" data-page="historico" onclick="go('historico')"><span class="icon">📂</span> Histórico</div>
       <div class="nav-item" data-page="financeiro" onclick="go('financeiro')"><span class="icon">💵</span> Resumo Financeiro</div>
+      <div class="nav-section">Conta</div>
+      <div class="nav-item" onclick="window._fb.logout()"><span class="icon">🚪</span> Sair</div>
     </nav>
   </div>
   <div class="main" id="main-content"></div>
@@ -54,6 +56,7 @@
 
 <div id="modal-root"></div>
 <div id="lock-root"></div>
+<div id="login-root"></div>
 
 <!-- Firebase SDK via CDN (modular compat) -->
 <script type="module" src="firebase.js"></script>

@@ -3,11 +3,9 @@ const fmt = n => n!=null ? 'R$ '+Number(n).toLocaleString('pt-BR',{minimumFracti
 const fmtDate = d => { if(!d)return '-'; try{const [y,m,dd]=d.split('-');return `${dd}/${m}/${y}`}catch{return d}};
 const today = () => new Date().toISOString().split('T')[0];
 
-function nextOS(){
-  const n = String(state.osCounter).padStart(3,'0');
-  state.osCounter++;
-  if(window._fb) window._fb.saveMeta('osCounter', state.osCounter);
-  return `OS-${n}`;
+async function nextOS(){
+  const n = await window._fb.nextOsNumber();
+  return `OS-${String(n).padStart(3,'0')}`;
 }
 function getVeiculo(placa){return state.veiculos.find(v=>v.placa===placa)||{}}
 function getStatusBadge(s){
@@ -393,7 +391,7 @@ function autoFillOS(isEdit){
 async function saveOS(){
   const placa=document.getElementById('os-placa').value;
   const v=getVeiculo(placa);
-  const num=nextOS();
+  const num=await nextOS();
   const id=Date.now();
   const obj={
     id, num,

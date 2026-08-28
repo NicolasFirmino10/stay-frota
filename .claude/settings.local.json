@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check app.js)",
+      "Bash(node --check firebase.js)",
+      "Bash(python3 -c ' *)",
+      "Bash(node -e ' *)",
+      "Bash(node verify3.js)",
+      "Bash(claude plugin *)"
+    ]
+  }
+}
