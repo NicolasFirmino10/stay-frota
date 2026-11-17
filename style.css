@@ -43,3 +43,14 @@ dialog::backdrop{background:#0006}
 @media(max-width:760px){.grid-form,.filters{grid-template-columns:1fr}}
 tr.group td{background:#e3ebfa;font-weight:700;cursor:pointer;position:sticky}
 tr.group .muted{font-weight:400}
+textarea{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:7px;width:100%;height:110px;resize:none;line-height:1.5;background:#fff;color:var(--ink)}
+textarea:focus{outline:2px solid #bfd1ff;border-color:var(--brand)}
+.full{grid-column:1/-1}
+tr.rec{cursor:pointer}tr.rec:hover td{background:#f5f8ff}
+.has-det{margin-left:6px;font-size:12px}
+#dlg-det{width:min(520px,94vw)}
+#dlg-det h2{margin:0 0 4px}
+.det-meta{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:10px 0;font-size:13px}
+.det-meta dt{color:var(--muted)}.det-meta dd{margin:0;font-weight:600}
+.det-text{white-space:pre-wrap;background:#f6f8fb;border:1px solid var(--line);border-radius:8px;padding:12px;max-height:50vh;overflow:auto}
+#dlg-det .form-actions{margin-top:14px}

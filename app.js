@@ -63,8 +63,8 @@ function render() {
     return `<tr class="group" data-toggle="${esc(id)}"><td colspan="4">${closed ? '▸' : '▾'} ${esc(veicLabel(v))}${v?.motorista ? ' — ' + esc(v.motorista) : ''}
       <span class="muted">(${list.length} registro${list.length > 1 ? 's' : ''})</span></td>
       <td class="num">${brl(sum(list))}</td><td></td></tr>` +
-      (closed ? '' : list.map(r => `<tr><td>${fmtDate(r.data)}</td><td colspan="2" class="muted">${esc(v?.placa)}</td>
-      <td>${esc(r.descricao)}</td><td class="num">${r.valor == null ? '—' : brl(r.valor)}</td>
+      (closed ? '' : list.map(r => `<tr class="rec" data-open="${esc(r.id)}"><td>${fmtDate(r.data)}</td><td colspan="2" class="muted">${esc(v?.placa)}</td>
+      <td>${esc(r.descricao)}${r.detalhes ? '<span class="has-det" title="Tem descrição detalhada">📝</span>' : ''}</td><td class="num">${r.valor == null ? '—' : brl(r.valor)}</td>
       <td class="actions"><button class="btn small" data-edit="${esc(r.id)}">Editar</button>
       <button class="btn small danger" data-del="${esc(r.id)}">Excluir</button></td></tr>`).join(''));
   }).join('') : '<tr><td colspan="6" class="empty">Nenhum registro para esse filtro.</td></tr>';
@@ -91,6 +91,7 @@ $('form').onsubmit = async e => {
     veiculoId: $('f-veiculo').value,
     data: $('f-data').value,
     descricao: $('f-desc').value.trim(),
+    detalhes: $('f-det').value.trim(),
     valor: Math.round(parseFloat($('f-valor').value) * 100) / 100
   };
   if (!data.veiculoId || !data.descricao || isNaN(data.valor)) return;
@@ -106,19 +107,44 @@ $('rows').onclick = async e => {
   const g = e.target.closest('tr.group');
   if (g) { const id = g.dataset.toggle; collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); return render(); }
   const ed = e.target.dataset.edit, del = e.target.dataset.del;
-  if (ed) {
-    const r = state.registros.find(x => x.id === ed); if (!r) return;
-    state.editId = ed;
-    $('f-veiculo').value = r.veiculoId; $('f-data').value = r.data || '';
-    $('f-desc').value = r.descricao; $('f-valor').value = r.valor ?? '';
-    $('form-title').textContent = 'Editando registro';
-    $('btn-save').textContent = 'Atualizar registro';
-    $('btn-cancel').hidden = false;
-    scrollTo({ top: 0, behavior: 'smooth' });
-  } else if (del && confirm('Excluir este registro?')) {
+  if (!ed && !del) { const tr = e.target.closest('tr.rec'); if (tr) openDet(tr.dataset.open); return; }
+  if (ed) { startEdit(ed); }
+  else if (del && confirm('Excluir este registro?')) {
     try { await remove(COL_REGISTROS, del); setStatus('Removido ✓'); } catch (err) { console.error(err); setStatus('Erro ao remover', true); }
   }
 };
+
+function startEdit(id) {
+  const r = state.registros.find(x => x.id === id); if (!r) return;
+  state.editId = id;
+  $('f-veiculo').value = r.veiculoId; $('f-data').value = r.data || '';
+  $('f-desc').value = r.descricao; $('f-det').value = r.detalhes || ''; $('f-valor').value = r.valor ?? '';
+  $('form-title').textContent = 'Editando registro';
+  $('btn-save').textContent = 'Atualizar registro';
+  $('btn-cancel').hidden = false;
+  scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ─── Janela de detalhes (clique no registro) ─────────────────────────────────
+let detId = null;
+function openDet(id) {
+  const r = state.registros.find(x => x.id === id); if (!r) return;
+  const v = veic(r.veiculoId);
+  detId = id;
+  $('det-body').innerHTML = `<h2>${esc(r.descricao)}</h2>
+    <dl class="det-meta">
+      <dt>Veículo</dt><dd>${esc(veicLabel(v))}</dd>
+      <dt>Motorista</dt><dd>${esc(v?.motorista) || '—'}</dd>
+      <dt>Data</dt><dd>${fmtDate(r.data)}</dd>
+      <dt>Valor</dt><dd>${r.valor == null ? '—' : brl(r.valor)}</dd>
+    </dl>
+    <div class="muted">Descrição</div>
+    <div class="det-text">${r.detalhes ? esc(r.detalhes) : '<span class="muted">Sem descrição detalhada. Use "Editar" para adicionar.</span>'}</div>`;
+  $('dlg-det').showModal();
+}
+$('det-close').onclick = () => $('dlg-det').close();
+$('det-edit').onclick = () => { $('dlg-det').close(); startEdit(detId); };
+$('dlg-det').addEventListener('click', e => { if (e.target === $('dlg-det')) $('dlg-det').close(); });
 
 // ─── Veículos ────────────────────────────────────────────────────────────────
 let editVeic = null;
@@ -166,12 +192,12 @@ $('btn-export').onclick = () => {
   const rows = filtered();
   if (!rows.length) return alert('Nada para exportar com esse filtro.');
   const toDate = iso => iso ? new Date(iso + 'T12:00:00') : '';
-  const aoa = [['Data', 'Placa', 'Veículo', 'Motorista', 'Defeito / serviço', 'Valor (R$)']];
-  rows.forEach(r => { const v = veic(r.veiculoId); aoa.push([toDate(r.data), v?.placa || '', v?.modelo || '', v?.motorista || '', r.descricao, r.valor ?? '']); });
+  const aoa = [['Data', 'Placa', 'Veículo', 'Motorista', 'Defeito / serviço', 'Valor (R$)', 'Descrição']];
+  rows.forEach(r => { const v = veic(r.veiculoId); aoa.push([toDate(r.data), v?.placa || '', v?.modelo || '', v?.motorista || '', r.descricao, r.valor ?? '', r.detalhes || '']); });
   const total = rows.reduce((s, r) => s + (Number(r.valor) || 0), 0);
   aoa.push([], ['', '', '', '', 'TOTAL', total]);
   const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
-  ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 60 }, { wch: 14 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 60 }, { wch: 14 }, { wch: 60 }];
   for (let r = 1; r <= aoa.length; r++) {
     const d = ws['A' + r], m = ws['F' + r];
     if (d && d.t === 'd') d.z = 'dd/mm/yyyy';
