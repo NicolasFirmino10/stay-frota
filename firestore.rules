@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ATENÇÃO: sem autenticação, qualquer pessoa com acesso ao app lê e grava.
+    match /frota_veiculos/{id} { allow read, write: if true; }
+    match /frota_registros/{id} { allow read, write: if true; }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
